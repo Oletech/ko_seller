@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "853459286281",
+    "firebase_url": "https://kariakoo-babb8.firebaseio.com",
+    "project_id": "kariakoo-babb8",
+    "storage_bucket": "kariakoo-babb8.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:853459286281:android:29a9caaa76dcd88bcb3bd8",
+        "android_client_info": {
+          "package_name": "tz.co.oletech.kariakoonline"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "853459286281-8plvl1a7iot6s573eul9lnsd3pqtndmj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tz.co.oletech.kariakoonline",
+            "certificate_hash": "dd6761dd7be5a053f878a7817a1e713b4bd6efd8"
+          }
+        },
+        {
+          "client_id": "853459286281-m9ru50mvokvo5np9n9olauktp25rdl6o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tz.co.oletech.kariakoonline",
+            "certificate_hash": "3561b72323bad5ea88ccffa8a70125fabc8d1053"
+          }
+        },
+        {
+          "client_id": "853459286281-jb51sostafkbkket74ettcejm69dcpnf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMqfXjlnFGXT4pKIiM_bBoq6axKMElVdg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "853459286281-jb51sostafkbkket74ettcejm69dcpnf.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "853459286281-is0selhk30mhh2qk732u9vi6j0r3h9ad.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.kariakoonline"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

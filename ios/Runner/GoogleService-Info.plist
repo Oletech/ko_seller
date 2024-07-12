@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>853459286281-kv6b9d138u9v75126sbkq4tql8hqaf2s.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.853459286281-kv6b9d138u9v75126sbkq4tql8hqaf2s</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>853459286281-cbmcd2bo92givlmm9u9nhivr2pvil4dp.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyCs1Y4RfP_0bDK_S9S3AW2SpYN9sb0v04M</string>
+	<key>GCM_SENDER_ID</key>
+	<string>853459286281</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>tz.co.oletech.kariakoonline</string>
+	<key>PROJECT_ID</key>
+	<string>kariakoo-babb8</string>
+	<key>STORAGE_BUCKET</key>
+	<string>kariakoo-babb8.appspot.com</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:853459286281:ios:b617db8a41ad9929cb3bd8</string>
+	<key>DATABASE_URL</key>
+	<string>https://kariakoo-babb8.firebaseio.com</string>
+</dict>
+</plist>
