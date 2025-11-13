@@ -1,15 +1,16 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
-class Utils {
-  static dynamic toDateTime(Timestamp? value) {
-    if (value == null) return null;
+final NumberFormat _currencyFormat =
+    NumberFormat.currency(locale: 'sw_TZ', symbol: 'TZS ');
 
-    return value.toDate();
-  }
+String formatCurrency(num value) {
+  return _currencyFormat.format(value);
+}
 
-  static dynamic fromDateTimeToJson(DateTime? date) {
-    if (date == null) return null;
+String formatCompact(num value) {
+  return NumberFormat.compact(locale: 'en').format(value);
+}
 
-    return date.toUtc();
-  }
+String formatDateTime(DateTime dateTime) {
+  return DateFormat('dd MMM, hh:mm a').format(dateTime);
 }

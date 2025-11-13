@@ -1,217 +1,216 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/src/foundation/key.dart';
-import 'package:flutter/src/widgets/framework.dart';
-import 'package:kariakoonline_seller/screen/login.dart';
-import 'package:kariakoonline_seller/utils/style.dart';
+import 'package:provider/provider.dart';
+
+import '../provider/auth_provider.dart';
+import '../utils/style.dart';
+import 'home.dart';
+import 'login.dart';
 
 class SplashScreen extends StatefulWidget {
-  static String routeName = '../splash_screen';
-  const SplashScreen({Key? key}) : super(key: key);
+  static const routeName = '/splash';
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  int currentPage = 0;
-  PageController controller = PageController();
+  final PageController _controller = PageController();
+  int _currentPage = 0;
 
-  List<Map<String, String>> screenContentList = [
+  final List<Map<String, String>> _pages = const [
     {
-      'title': 'Join the \nKariakoo Seller \nCommunity',
-      'subtitle': 'Connect. List. Sell. Thrive.',
+      'title': 'Join the Kariakoo Seller Community',
+      'subtitle':
+          'Create your seller profile, list products and promotions, and reach local buyers — connect your stall to customers in minutes.',
       'bg': 'assets/images/seller-01.jpg',
     },
     {
-      'title': 'Unlock \nYour Selling \nPotential',
-      'subtitle': 'Selling Just Got Easier.',
+      'title': 'Accept Orders & Payments Securely',
+      'subtitle':
+          'Accept mobile money, cards and escrow-protected payments so funds are held until delivery — reducing fraud and building buyer trust.',
       'bg': 'assets/images/seller-02.jpg',
     },
     {
-      'title': 'Empower \nYour Sales \nJourney',
-      'subtitle': 'Tap into a World of Buyers.',
+      'title': 'Grow With Reports & Insights',
+      'subtitle':
+          'Track sales trends, inventory levels and payout releases with clear reports to make smarter stocking and pricing decisions.',
       'bg': 'assets/images/seller-03.jpg',
     },
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = context.read<AuthProvider>();
+      if (auth.status == AuthStatus.authenticated) {
+        Future.delayed(const Duration(milliseconds: 900), () {
+          _navigateTo(const HomeScreen());
+        });
+      }
+    });
+  }
+
+  void _navigateTo(Widget screen) {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => screen),
+    );
+  }
+
+  void _handlePrimaryAction() {
+    final auth = context.read<AuthProvider>();
+    if (auth.isAuthenticated) {
+      _navigateTo(const HomeScreen());
+    } else {
+      _navigateTo(const LoginScreen());
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final size = MediaQuery.of(context).size;
     return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          children: [
-            // Bg Image
-            AnimatedContainer(
-              duration: const Duration(seconds: 2000),
-              curve: Curves.bounceIn,
-              child: Image.asset(
-                screenContentList[currentPage]['bg'].toString(),
-                width: screenWidth,
-                height: screenHeight,
-                fit: BoxFit.fill,
+      body: Stack(
+        children: [
+          PageView.builder(
+            controller: _controller,
+            itemCount: _pages.length,
+            onPageChanged: (value) {
+              setState(() {
+                _currentPage = value;
+              });
+            },
+            itemBuilder: (context, index) {
+              final page = _pages[index];
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.asset(
+                    page['bg']!,
+                    fit: BoxFit.cover,
+                  ),
+                  Container(
+                    color: sellerBlack.withOpacity(0.45),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 200),
+                        const Text(
+                          'Seller',
+                          style: TextStyle(
+                            fontFamily: 'Fascinate-Regular',
+                            fontSize: 48,
+                            color: Colors.white,
+                          ),
+                        ),
+                        // const Spacer(),
+                        Text(
+                          page['title']!,
+                          style: const TextStyle(
+                            fontFamily: 'Impact',
+                            fontSize: 32,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          page['subtitle']!,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.white.withOpacity(0.85),
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          Positioned(
+            top: 50,
+            right: 24,
+            child: TextButton(
+              onPressed: _handlePrimaryAction,
+              child: const Text(
+                'Skip',
+                style: TextStyle(color: Colors.white),
               ),
             ),
-            // Content Body
-            PageView.builder(
-                controller: controller,
-                itemCount: screenContentList.length,
-                onPageChanged: (value) {
-                  setState(() {
-                    currentPage = value;
-                  });
-                },
-                itemBuilder: (context, index) {
-                  return OnBoardContent(
-                    title: screenContentList[index]['title'].toString(),
-                    subtitle: screenContentList[index]['subtitle'].toString(),
-                    pageIndex: index,
-                  );
-                }),
-            // Button
-            Positioned(
-              bottom: 15,
-              right: 15,
-              left: 15,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          ),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              width: size.width,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.transparent, Colors.black54],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pushNamed(LoginScreen.routeName);
-                    },
-                    child: const Text(
-                      'Skip',
-                      style: TextStyle(
-                        color: sellerRed,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(
+                      _pages.length,
+                      (index) => AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        width: _currentPage == index ? 32 : 10,
+                        height: 6,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        decoration: BoxDecoration(
+                          color: _currentPage == index
+                              ? sellerGreen
+                              : Colors.white54,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                       ),
                     ),
                   ),
+                  const SizedBox(height: 20),
                   SizedBox(
-                    width: 60,
-                    height: 60,
+                    width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
-                        controller.nextPage(
-                          duration: const Duration(seconds: 2000),
-                          curve: Curves.easeIn,
-                        );
-                        // setState(() {
-                        //   currentPage = currentPage + 1;
-                        // });
-                      },
                       style: ElevatedButton.styleFrom(
-                          primary: sellerRed, shape: const CircleBorder()),
-                      child: const Icon(
-                        Icons.arrow_forward_outlined,
-                        color: Colors.white,
+                        backgroundColor: sellerRed,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        if (_currentPage == _pages.length - 1) {
+                          _handlePrimaryAction();
+                        } else {
+                          _controller.nextPage(
+                            duration: const Duration(milliseconds: 600),
+                            curve: Curves.easeInOut,
+                          );
+                        }
+                      },
+                      child: Text(
+                        _currentPage == _pages.length - 1
+                            ? 'Get Started'
+                            : 'Next',
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class OnBoardContent extends StatelessWidget {
-  const OnBoardContent({
-    Key? key,
-    required this.title,
-    required this.subtitle,
-    required this.pageIndex,
-  }) : super(key: key);
-
-  final String title;
-  final String subtitle;
-  final int pageIndex;
-
-  @override
-  Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    return SizedBox(
-      width: screenWidth,
-      height: screenHeight,
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-          // Logo
-          const Text(
-            'Seller',
-            style: TextStyle(
-              fontFamily: 'Fascinate-Regular',
-              fontSize: 50,
-              color: sellerRed,
-            ),
-          ),
-          const SizedBox(height: 50),
-          // Indicator
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedContainer(
-                width: pageIndex != 0 ? 28 : screenWidth / 8,
-                height: 8,
-                duration: const Duration(seconds: 2000),
-                curve: Curves.easeIn,
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                decoration: BoxDecoration(
-                  color: pageIndex == 0 ? sellerGreen : sellerGray,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              AnimatedContainer(
-                width: pageIndex != 1 ? 28 : screenWidth / 8,
-                height: 8,
-                duration: const Duration(seconds: 2000),
-                curve: Curves.easeIn,
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                decoration: BoxDecoration(
-                  color: pageIndex == 1 ? sellerGreen : sellerGray,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              AnimatedContainer(
-                width: pageIndex != 2 ? 28 : screenWidth / 8,
-                height: 8,
-                duration: const Duration(seconds: 2000),
-                curve: Curves.easeIn,
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                decoration: BoxDecoration(
-                  color: pageIndex == 2 ? sellerGreen : sellerGray,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 70),
-          // Title
-          Text(
-            title.toString(),
-            textAlign: TextAlign.left,
-            style: const TextStyle(
-              fontFamily: 'Impact',
-              fontSize: 30,
-              color: sellerGreen,
-            ),
-          ),
-          // SubTitle
-          Text(
-            subtitle.toString(),
-            textAlign: TextAlign.left,
-            style: const TextStyle(
-              fontFamily: 'Muli',
-              fontSize: 16,
-              color: sellerBlack,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
+          )
         ],
       ),
     );

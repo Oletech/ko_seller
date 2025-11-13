@@ -1,22 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:kariakoonline_seller/screen/account.dart';
-import 'package:kariakoonline_seller/screen/favorite.dart';
-import 'package:kariakoonline_seller/screen/home.dart';
-import 'package:kariakoonline_seller/screen/login.dart';
-import 'package:kariakoonline_seller/screen/new_product.dart';
-import 'package:kariakoonline_seller/screen/notifications.dart';
-import 'package:kariakoonline_seller/screen/order.dart';
-import 'package:kariakoonline_seller/screen/products.dart';
-import 'package:kariakoonline_seller/screen/verification.dart';
+
+import '../screen/home.dart';
+import '../screen/login.dart';
+import '../screen/new_product.dart';
+import '../screen/splash.dart';
+import '../screen/verification.dart';
 
 Map<String, WidgetBuilder> routes = {
-  HomeScreen.routeName: (context) => const HomeScreen(),
-  AccountScreen.routeName: (context) => const AccountScreen(),
-  OrderScreen.routeName: (context) => const OrderScreen(),
-  NotificationScreen.routeName: (context) => const NotificationScreen(),
-  ProductScreen.routeName: (context) => const ProductScreen(),
-  NewProductScreen.routeName: (context) => const NewProductScreen(),
-  FavoriteScreen.routeName: (context) => const FavoriteScreen(),
-  LoginScreen.routeName: (context) => const LoginScreen(),
-  Verificatoin.routeName: (context) => const Verificatoin(),
+  SplashScreen.routeName: (_) => const SplashScreen(),
+  HomeScreen.routeName: (_) => const HomeScreen(),
+  LoginScreen.routeName: (_) => const LoginScreen(),
+  NewProductScreen.routeName: (_) => const NewProductScreen(),
+  VerificationScreen.routeName: (context) {
+    final phone = ModalRoute.of(context)?.settings.arguments as String? ?? '';
+    return VerificationScreen(phoneNumber: phone);
+  },
 };

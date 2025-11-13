@@ -1,220 +1,209 @@
-import 'package:animate_do/animate_do.dart';
-import 'package:flutter/material.dart';
 import 'dart:async';
 
+import 'package:animate_do/animate_do.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_verification_code/flutter_verification_code.dart';
-import 'package:kariakoonline_seller/utils/style.dart';
+import 'package:provider/provider.dart';
 
-class Verificatoin extends StatefulWidget {
-  static String routeName = '../verificatoin_screen';
-  const Verificatoin({Key? key}) : super(key: key);
+import '../provider/auth_provider.dart';
+import '../utils/style.dart';
+import 'home.dart';
+
+class VerificationScreen extends StatefulWidget {
+  static const routeName = '/verify';
+  const VerificationScreen({super.key, required this.phoneNumber});
+
+  final String phoneNumber;
 
   @override
-  _VerificatoinState createState() => _VerificatoinState();
+  State<VerificationScreen> createState() => _VerificationScreenState();
 }
 
-class _VerificatoinState extends State<Verificatoin> {
-  bool _isResendAgain = false;
-  bool _isVerified = false;
+class _VerificationScreenState extends State<VerificationScreen> {
+  String _otp = '';
   bool _isLoading = false;
-
-  String _code = '';
-
-  late Timer _timer;
-  int _start = 60;
-  int _currentIndex = 0;
-
-  void resend() {
-    setState(() {
-      _isResendAgain = true;
-    });
-
-    const oneSec = Duration(seconds: 1);
-    _timer = new Timer.periodic(oneSec, (timer) {
-      setState(() {
-        if (_start == 0) {
-          _start = 60;
-          _isResendAgain = false;
-          timer.cancel();
-        } else {
-          _start--;
-        }
-      });
-    });
-  }
-
-  verify() {
-    setState(() {
-      _isLoading = true;
-    });
-
-    const oneSec = Duration(milliseconds: 2000);
-    _timer = new Timer.periodic(oneSec, (timer) {
-      setState(() {
-        _isLoading = false;
-        _isVerified = true;
-      });
-    });
-  }
+  Timer? _timer;
+  int _countdown = 60;
 
   @override
   void initState() {
-    Timer.periodic(Duration(seconds: 5), (timer) {
-      setState(() {
-        _currentIndex++;
-
-        if (_currentIndex == 3) _currentIndex = 0;
-      });
-    });
-
     super.initState();
+    _startTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _countdown = 60;
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_countdown == 0) {
+        timer.cancel();
+      } else {
+        setState(() {
+          _countdown--;
+        });
+      }
+    });
+  }
+
+  Future<void> _verify() async {
+    if (_otp.length < 4) return;
+    final auth = context.read<AuthProvider>();
+    setState(() {
+      _isLoading = true;
+    });
+    final success = await auth.verifyOtp(_otp);
+    setState(() {
+      _isLoading = false;
+    });
+    if (!mounted) return;
+    if (success) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (route) => false,
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid or expired OTP, jaribu tena.'),
+          backgroundColor: sellerRed,
+        ),
+      );
+    }
+  }
+
+  Future<void> _resend() async {
+    final auth = context.read<AuthProvider>();
+    await auth.requestOtp(widget.phoneNumber);
+    _startTimer();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('OTP mpya: ${auth.debugCode}'),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
     return Scaffold(
-        backgroundColor: Colors.white,
-        body: SingleChildScrollView(
-          child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 20),
-              height: MediaQuery.of(context).size.height,
-              width: double.infinity,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    height: 200,
-                    child: Stack(children: [
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Image.asset('assets/images/seller-otp.jpg'),
-                      ),
-                    ]),
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              FadeInDown(
+                child: SizedBox(
+                  height: 200,
+                  child: Image.asset('assets/images/seller-otp.jpg'),
+                ),
+              ),
+              const SizedBox(height: 24),
+              FadeInDown(
+                delay: const Duration(milliseconds: 150),
+                child: const Text(
+                  'Verification',
+                  style: TextStyle(
+                    fontFamily: 'Impact',
+                    fontSize: 30,
+                    color: sellerGreen,
                   ),
-                  const SizedBox(
-                    height: 20,
-                  ),
-                  FadeInDown(
-                      duration: Duration(milliseconds: 500),
-                      child: const Text(
-                        "Verification",
-                        style: TextStyle(
-                          fontSize: 30,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Muli',
-                        ),
-                      )),
-                  const SizedBox(
-                    height: 20,
-                  ),
-                  FadeInDown(
-                    delay: const Duration(milliseconds: 500),
-                    duration: const Duration(milliseconds: 500),
-                    child: Text(
-                      "Please enter the 4 digit code sent to \n +93 706-399-999",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade500,
-                          height: 1.5),
-                    ),
-                  ),
-                  const SizedBox(
-                    height: 20,
-                  ),
-
-                  // Verification Code Input
-                  FadeInDown(
-                    delay: const Duration(milliseconds: 600),
-                    duration: const Duration(milliseconds: 500),
-                    child: VerificationCode(
+                ),
+              ),
+              const SizedBox(height: 12),
+              FadeInDown(
+                delay: const Duration(milliseconds: 250),
+                child: Text(
+                  'Tumepeleka msimbo wa tarakimu 4 kwa ${widget.phoneNumber}\n'
+                  'Msimbo unatumika kujenga uhusiano wa Alice na Bob salama.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ),
+              const SizedBox(height: 32),
+              FadeInDown(
+                delay: const Duration(milliseconds: 350),
+                child: Column(
+                  children: [
+                    VerificationCode(
                       length: 4,
-                      textStyle:
-                          const TextStyle(fontSize: 20, color: Colors.black),
-                      underlineColor: Colors.black,
+                      textStyle: const TextStyle(fontSize: 20),
+                      underlineColor: sellerGreen,
                       keyboardType: TextInputType.number,
-                      underlineUnfocusedColor: Colors.black,
-                      onCompleted: (value) {
-                        setState(() {
-                          _code = value;
-                        });
-                      },
-                      onEditing: (value) {},
+                      onCompleted: (value) => _otp = value,
+                      onEditing: (_) {},
                     ),
-                  ),
-
-                  const SizedBox(
-                    height: 20,
-                  ),
-                  FadeInDown(
-                    delay: const Duration(milliseconds: 700),
-                    duration: Duration(milliseconds: 500),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          "Don't resive the OTP?",
-                          style: TextStyle(
-                              fontSize: 14, color: Colors.grey.shade500),
-                        ),
-                        TextButton(
-                            onPressed: () {
-                              if (_isResendAgain) return;
-                              resend();
-                            },
-                            child: Text(
-                              _isResendAgain
-                                  ? "Try again in " + _start.toString()
-                                  : "Resend",
-                              style: TextStyle(color: sellerGreen),
-                            ))
-                      ],
+                    const SizedBox(height: 8),
+                    Text(
+                      'Demo OTP: ${auth.debugCode ?? 'Pending...'}',
+                      style: const TextStyle(color: sellerGray),
                     ),
-                  ),
-                  const SizedBox(
-                    height: 50,
-                  ),
-                  FadeInDown(
-                    delay: const Duration(milliseconds: 800),
-                    duration: const Duration(milliseconds: 500),
-                    child: MaterialButton(
-                      elevation: 0,
-                      onPressed: _code.length < 4
-                          ? () => {}
-                          : () {
-                              verify();
-                            },
-                      color: sellerRed,
-                      minWidth: MediaQuery.of(context).size.width * 0.8,
-                      height: 50,
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                backgroundColor: Colors.white,
-                                strokeWidth: 3,
-                                color: Colors.black,
-                              ),
-                            )
-                          : _isVerified
-                              ? const Icon(
-                                  Icons.check_circle,
-                                  color: Colors.white,
-                                  size: 30,
-                                )
-                              : const Text(
-                                  "Verify",
-                                  style: TextStyle(color: Colors.white),
-                                ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              FadeInDown(
+                delay: const Duration(milliseconds: 450),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _countdown > 0
+                          ? 'Resend in $_countdown s'
+                          : 'Didn\'t receive code?',
+                      style: const TextStyle(color: sellerGray),
                     ),
-                  )
-                ],
-              )),
-        ));
+                    TextButton(
+                      onPressed: _countdown > 0 ? null : _resend,
+                      child: const Text(
+                        'Resend',
+                        style: TextStyle(color: sellerGreen),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+              FadeInDown(
+                delay: const Duration(milliseconds: 550),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: sellerRed,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: _isLoading ? null : _verify,
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text('Verify & Continue'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

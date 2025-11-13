@@ -1,32 +1,88 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:kariakoonline_seller/provider/auth_provider.dart';
-import 'package:kariakoonline_seller/screen/splash.dart';
-import 'package:kariakoonline_seller/utils/route.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'provider/auth_provider.dart';
+import 'provider/notification_provider.dart';
+import 'provider/order_provider.dart';
+import 'provider/product_provider.dart';
+import 'screen/splash.dart';
+import 'services/local_storage_service.dart';
+import 'services/otp_service.dart';
+import 'utils/route.dart';
+import 'utils/style.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  final prefs = await SharedPreferences.getInstance();
+  final storage = LocalStorageService(prefs);
+  final otpService = OtpService();
 
-  runApp(const MyApp());
+  runApp(
+    KariakooSellerApp(
+      storage: storage,
+      otpService: otpService,
+    ),
+  );
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+class KariakooSellerApp extends StatelessWidget {
+  const KariakooSellerApp({
+    super.key,
+    required this.storage,
+    required this.otpService,
+  });
 
-  // This widget is t  e root of your application.
+  final LocalStorageService storage;
+  final OtpService otpService;
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (context) => AuthProvider()),
+        ChangeNotifierProvider(
+          create: (_) => AuthProvider(
+            storage: storage,
+            otpService: otpService,
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => NotificationProvider(storage: storage),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => ProductProvider(storage: storage),
+        ),
+        ChangeNotifierProxyProvider<NotificationProvider, OrderProvider>(
+          create: (context) => OrderProvider(
+            notificationProvider: context.read<NotificationProvider>(),
+          ),
+          update: (_, notificationProvider, previous) {
+            final provider = previous ??
+                OrderProvider(notificationProvider: notificationProvider);
+            provider.updateNotificationProvider(notificationProvider);
+            return provider;
+          },
+        ),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Kariakoonline Seller',
         theme: ThemeData(
-          primarySwatch: Colors.red,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: sellerRed,
+            primary: sellerRed,
+            secondary: sellerGreen,
+          ),
+          scaffoldBackgroundColor: Colors.white,
+          fontFamily: 'Muli',
+          textTheme: const TextTheme(
+            headlineMedium: TextStyle(
+              fontFamily: 'Impact',
+              fontSize: 28,
+              color: sellerGreen,
+            ),
+          ),
+          useMaterial3: true,
         ),
         home: const SplashScreen(),
         routes: routes,
