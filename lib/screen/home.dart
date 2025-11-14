@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../model/order_item.dart';
 import '../model/payment_channel.dart';
+import '../model/seller_profile.dart';
 import '../model/product_item.dart';
 import '../model/sales_record.dart';
 import '../provider/auth_provider.dart';
@@ -539,15 +540,42 @@ class _ProductHighlightGrid extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ClipRRect(
-                        borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(20)),
-                        child: SellerProductImage(
-                          source: cover,
-                          height: 130,
-                          width: 160,
-                          fit: BoxFit.cover,
-                        ),
+                      Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(20)),
+                            child: SellerProductImage(
+                              source: cover,
+                              height: 130,
+                              width: 160,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          Positioned(
+                            top: 8,
+                            left: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _productStatusColor(product.status)
+                                    .withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                _productStatusLabel(product.status),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       Padding(
                         padding: const EdgeInsets.all(12),
@@ -579,6 +607,34 @@ class _ProductHighlightGrid extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+Color _productStatusColor(ProductStatus status) {
+  switch (status) {
+    case ProductStatus.pending:
+      return Colors.orange;
+    case ProductStatus.published:
+      return sellerGreen;
+    case ProductStatus.archived:
+      return Colors.grey;
+    case ProductStatus.draft:
+    default:
+      return Colors.blueGrey;
+  }
+}
+
+String _productStatusLabel(ProductStatus status) {
+  switch (status) {
+    case ProductStatus.pending:
+      return 'Pending';
+    case ProductStatus.published:
+      return 'Live';
+    case ProductStatus.archived:
+      return 'Paused';
+    case ProductStatus.draft:
+    default:
+      return 'Draft';
   }
 }
 
@@ -1298,156 +1354,27 @@ class _ShippingCard extends StatelessWidget {
   }
 }
 
-class AccountSection extends StatefulWidget {
+class AccountSection extends StatelessWidget {
   const AccountSection({super.key});
-
-  @override
-  State<AccountSection> createState() => _AccountSectionState();
-}
-
-class _AccountSectionState extends State<AccountSection> {
-  late TextEditingController _nameController;
-  late TextEditingController _storeController;
-  late TextEditingController _businessController;
-  late TextEditingController _bioController;
-
-  @override
-  void initState() {
-    super.initState();
-    final profile = context.read<AuthProvider>().profile;
-    _nameController = TextEditingController(text: profile?.displayName ?? '');
-    _storeController = TextEditingController(text: profile?.storeName ?? '');
-    _businessController =
-        TextEditingController(text: profile?.businessType ?? '');
-    _bioController = TextEditingController(text: profile?.bio ?? '');
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _storeController.dispose();
-    _businessController.dispose();
-    _bioController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final products = context.watch<ProductProvider>().products;
     final profile = auth.profile;
     final channels = profile?.paymentChannels ?? [];
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const _SectionHeader(title: 'Account'),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: sellerGreen.withOpacity(0.1),
-                child: Text(
-                  (profile?.displayName ?? 'KS').isNotEmpty
-                      ? profile!.displayName.characters.first.toUpperCase()
-                      : 'K',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    color: sellerGreen,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                profile?.displayName.isNotEmpty == true
-                    ? profile!.displayName
-                    : 'Kariakoo Seller',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-              Text(profile?.phoneNumber ?? ''),
-            ],
-          ),
-        ),
+        _AccountHeader(profile: profile),
         const SizedBox(height: 16),
-        _editField('Display name', _nameController, auth),
-        _editField('Store name', _storeController, auth),
-        _editField('Business type', _businessController, auth),
-        _editField('About store', _bioController, auth, minLines: 3),
+        const _AccountActions(),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            const Text(
-              'Payment channels',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const Spacer(),
-            TextButton.icon(
-              onPressed: () => _openAddChannel(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Add'),
-            ),
-          ],
-        ),
-        ...channels.map(
-          (channel) => Card(
-            child: ListTile(
-              leading: Icon(
-                Icons.account_balance_wallet_outlined,
-                color: channel.isPrimary ? sellerGreen : Colors.grey,
-              ),
-              title: Text('${channel.displayName} • ${channel.type.label}'),
-              subtitle: Text(channel.accountNumber),
-              trailing: channel.isPrimary
-                  ? const Text('Primary', style: TextStyle(color: sellerGreen))
-                  : TextButton(
-                      onPressed: () => auth.setPrimaryChannel(channel.id),
-                      child: const Text('Make primary'),
-                    ),
-            ),
-          ),
-        ),
+        _PaymentMethods(channels: channels, auth: auth),
+        const SizedBox(height: 24),
+        _ListingManager(products: products),
       ],
-    );
-  }
-
-  Widget _editField(
-      String label, TextEditingController controller, AuthProvider auth,
-      {int minLines = 1}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
-        controller: controller,
-        minLines: minLines,
-        maxLines: minLines == 1 ? 1 : 5,
-        decoration: InputDecoration(
-          labelText: label,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-        onSubmitted: (_) => auth.updateProfile(
-          displayName: _nameController.text,
-          storeName: _storeController.text,
-          businessType: _businessController.text,
-          bio: _bioController.text,
-        ),
-      ),
-    );
-  }
-
-  void _openAddChannel(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _AddChannelSheet(),
     );
   }
 }
@@ -1469,11 +1396,512 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+class _StatChip extends StatelessWidget {
+  const _StatChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          Text(
+            label,
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountHeader extends StatelessWidget {
+  const _AccountHeader({required this.profile});
+
+  final SellerProfile? profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = (profile?.displayName ?? 'Seller').isNotEmpty
+        ? profile!.displayName.characters.first.toUpperCase()
+        : 'S';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  CircleAvatar(
+                    radius: 36,
+                    backgroundColor: sellerGreen.withOpacity(0.15),
+                    child: Text(
+                      initials,
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: sellerGreen,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 5,
+                    right: 0,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: Colors.black87,
+                        shape: BoxShape.circle,
+                      ),
+                      padding: const EdgeInsets.all(4),
+                      child:
+                          const Icon(Icons.add, size: 14, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            profile != null && profile!.storeName.isNotEmpty
+                                ? profile!.storeName
+                                : 'Kariakoo Seller',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.keyboard_arrow_down_rounded),
+                      ],
+                    ),
+                    Text(
+                      profile?.businessType ?? 'Marketplace Partner',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 12),
+                    const Row(
+                      children: [
+                        _StatChip(label: 'Listings', value: '24'),
+                        SizedBox(width: 12),
+                        _StatChip(label: 'Followers', value: '2.1k'),
+                        SizedBox(width: 12),
+                        _StatChip(label: 'Rating', value: '4.8'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.settings_outlined),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AddChannelSheet extends StatefulWidget {
   const _AddChannelSheet();
 
   @override
   State<_AddChannelSheet> createState() => _AddChannelSheetState();
+}
+
+class _AccountActions extends StatelessWidget {
+  const _AccountActions();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        _QuickActionChip(
+            label: 'Contact', icon: Icons.mail_outline, active: true),
+        _QuickActionChip(label: 'Statistics', icon: Icons.bar_chart),
+        _QuickActionChip(label: 'Edit profile', icon: Icons.edit_outlined),
+      ],
+    );
+  }
+}
+
+class _QuickActionChip extends StatelessWidget {
+  const _QuickActionChip({
+    required this.label,
+    required this.icon,
+    this.active = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          decoration: BoxDecoration(
+            color: active ? sellerRed : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: active ? Colors.transparent : Colors.grey.shade300,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? Colors.white : sellerRed,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PaymentMethods extends StatelessWidget {
+  const _PaymentMethods({required this.channels, required this.auth});
+
+  final List<PaymentChannel> channels;
+  final AuthProvider auth;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text(
+              'Payment methods',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: () => _openAddChannel(context),
+              icon: const Icon(Icons.add),
+              label: const Text('Add'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 100,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () => _openAddChannel(context),
+                  child: Column(
+                    children: [
+                      CircleAvatar(
+                        radius: 34,
+                        backgroundColor: sellerGreen.withOpacity(0.1),
+                        child: const Icon(Icons.add, color: sellerGreen),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text('Add'),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                ...channels.map(
+                  (channel) => Padding(
+                    padding: const EdgeInsets.only(right: 16),
+                    child: GestureDetector(
+                      onTap: () => _showPaymentDetail(context, channel),
+                      child: Column(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: channel.isPrimary
+                                    ? sellerGreen
+                                    : Colors.grey.shade300,
+                                width: 3,
+                              ),
+                            ),
+                            child: CircleAvatar(
+                              backgroundColor: Colors.grey.shade100,
+                              radius: 30,
+                              child: ClipOval(
+                                child: Image.asset(
+                                  _paymentIcon(channel.type),
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(channel.type.label),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openAddChannel(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _AddChannelSheet(),
+    );
+  }
+
+  void _showPaymentDetail(BuildContext context, PaymentChannel channel) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _PaymentDetailSheet(channel: channel),
+    );
+  }
+}
+
+String _paymentIcon(PaymentChannelType type) {
+  switch (type) {
+    case PaymentChannelType.mpesa:
+      return 'assets/icons/mpesa-icon.jpg';
+    case PaymentChannelType.airtelMoney:
+      return 'assets/icons/airtel-icon.jpg';
+    case PaymentChannelType.tigopesa:
+      return 'assets/icons/tigopesa-icon.jpg';
+    default:
+      return 'assets/icons/back-icon.jpg';
+  }
+}
+
+class _ListingManager extends StatelessWidget {
+  const _ListingManager({required this.products});
+
+  final List<ProductItem> products;
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = products.take(10).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Your listings',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
+            hintText: 'Search listing by SKU',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+          ),
+        ),
+        const SizedBox(height: 12),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 0.78,
+          ),
+          itemCount: filtered.length,
+          itemBuilder: (_, index) {
+            final product = filtered[index];
+            final source = product.media.isNotEmpty
+                ? product.media.first
+                : 'https://via.placeholder.com/80';
+            return GestureDetector(
+              onTap: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => _ProductPreviewSheet(product: product),
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(20)),
+                      child: SellerProductImage(
+                        source: source,
+                        height: 110,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            product.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'From ${formatCurrency(product.price)}',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Status: ${_productStatusLabel(product.status)}',
+                            style: TextStyle(
+                              color: _productStatusColor(product.status),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _PaymentDetailSheet extends StatelessWidget {
+  const _PaymentDetailSheet({required this.channel});
+
+  final PaymentChannel channel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Payment Details',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          CircleAvatar(
+            backgroundColor: Colors.grey.shade100,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: Image.asset(
+                _paymentIcon(channel.type),
+                width: 64,
+                height: 64,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            channel.displayName,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          Text(channel.accountNumber),
+          if (channel.instructions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                channel.instructions,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+            ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                flex: 1,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: sellerRed,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    side: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 3,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: sellerRed,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  onPressed: () {},
+                  child: const Text('Make Primary'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _AddChannelSheetState extends State<_AddChannelSheet> {
@@ -1536,22 +1964,33 @@ class _AddChannelSheetState extends State<_AddChannelSheet> {
             onChanged: (value) => setState(() => _primary = value),
           ),
           const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              final channel = PaymentChannel(
-                id: const Uuid().v4(),
-                type: _type,
-                displayName: _nameController.text,
-                accountNumber: _accountController.text,
-                instructions: _instructionController.text,
-                isPrimary: _primary,
-              );
-              await auth.addPaymentChannel(channel);
-              if (!mounted) return;
-              navigator.pop();
-            },
-            child: const Text('Save channel'),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: sellerRed,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+              onPressed: () async {
+                final navigator = Navigator.of(context);
+                final channel = PaymentChannel(
+                  id: const Uuid().v4(),
+                  type: _type,
+                  displayName: _nameController.text,
+                  accountNumber: _accountController.text,
+                  instructions: _instructionController.text,
+                  isPrimary: _primary,
+                );
+                await auth.addPaymentChannel(channel);
+                if (!mounted) return;
+                navigator.pop();
+              },
+              child: const Text('Save Payment Method'),
+            ),
           ),
         ],
       ),
@@ -1623,30 +2062,74 @@ class _ProductPreviewSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () => provider.togglePublish(product.id),
-                child: Text(
-                  product.status == ProductStatus.published
-                      ? 'Move to draft'
-                      : 'Publish listing',
-                ),
-              ),
+              ..._buildStatusActions(context, provider),
               const SizedBox(height: 8),
-              OutlinedButton(
+              TextButton(
                 onPressed: () {
                   provider.removeProduct(product.id);
                   Navigator.of(context).pop();
                 },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: sellerRed,
-                ),
-                child: const Text('Remove product'),
+                style: TextButton.styleFrom(foregroundColor: sellerRed),
+                child: const Text('Remove listing'),
               ),
             ],
           ),
         );
       },
     );
+  }
+
+  List<Widget> _buildStatusActions(
+      BuildContext context, ProductProvider provider) {
+    switch (product.status) {
+      case ProductStatus.draft:
+        return [
+          ElevatedButton(
+            onPressed: () async {
+              await provider.setStatus(product.id, ProductStatus.pending);
+              if (context.mounted) Navigator.of(context).pop();
+            },
+            child: const Text('Send for review'),
+          ),
+        ];
+      case ProductStatus.pending:
+        return [
+          ElevatedButton(
+            onPressed: () async {
+              await provider.setStatus(product.id, ProductStatus.published);
+              if (context.mounted) Navigator.of(context).pop();
+            },
+            child: const Text('Approve & publish'),
+          ),
+          OutlinedButton(
+            onPressed: () async {
+              await provider.setStatus(product.id, ProductStatus.draft);
+              if (context.mounted) Navigator.of(context).pop();
+            },
+            child: const Text('Back to draft'),
+          ),
+        ];
+      case ProductStatus.published:
+        return [
+          ElevatedButton(
+            onPressed: () async {
+              await provider.setStatus(product.id, ProductStatus.pending);
+              if (context.mounted) Navigator.of(context).pop();
+            },
+            child: const Text('Pause & review'),
+          ),
+        ];
+      case ProductStatus.archived:
+        return [
+          ElevatedButton(
+            onPressed: () async {
+              await provider.setStatus(product.id, ProductStatus.pending);
+              if (context.mounted) Navigator.of(context).pop();
+            },
+            child: const Text('Relist product'),
+          ),
+        ];
+    }
   }
 }
 

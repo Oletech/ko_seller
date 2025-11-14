@@ -28,6 +28,7 @@ class _NewProductScreenState extends State<NewProductScreen> {
   final _stockController = TextEditingController();
   final _descriptionController = TextEditingController();
   bool _allowNegotiation = false;
+  bool _listImmediately = false;
 
   final ImagePicker _picker = ImagePicker();
   final List<String> _imagePaths = [];
@@ -158,6 +159,13 @@ class _NewProductScreenState extends State<NewProductScreen> {
               label: 'Story / Description',
               minLines: 3,
               maxLines: 5,
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              title: const Text('List immediately (send for review)'),
+              subtitle: const Text('We will verify before it goes live'),
+              value: _listImmediately,
+              onChanged: (value) => setState(() => _listImmediately = value),
             ),
             const SizedBox(height: 12),
             SwitchListTile(
@@ -376,7 +384,7 @@ class _NewProductScreenState extends State<NewProductScreen> {
       stock: int.tryParse(_stockController.text) ?? 0,
       media: List<String>.from(_imagePaths),
       allowNegotiation: _allowNegotiation,
-      status: ProductStatus.published,
+      status: _listImmediately ? ProductStatus.pending : ProductStatus.draft,
       metrics: const ProductMetrics(),
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),

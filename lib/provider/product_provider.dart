@@ -67,15 +67,11 @@ class ProductProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> togglePublish(String productId) async {
+  Future<void> setStatus(String productId, ProductStatus status) async {
     final index = _products.indexWhere((element) => element.id == productId);
     if (index == -1) return;
-    final current = _products[index];
-    final newStatus = current.status == ProductStatus.published
-        ? ProductStatus.draft
-        : ProductStatus.published;
-    _products[index] = current.copyWith(
-      status: newStatus,
+    _products[index] = _products[index].copyWith(
+      status: status,
       updatedAt: DateTime.now(),
     );
     await _persist();
@@ -135,7 +131,7 @@ class ProductProvider extends ChangeNotifier {
           'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=400&q=80'
         ],
         allowNegotiation: false,
-        status: ProductStatus.published,
+        status: ProductStatus.pending,
         metrics: ProductMetrics.randomSeed(5),
         createdAt: now.subtract(const Duration(days: 5)),
         updatedAt: now.subtract(const Duration(days: 2)),
@@ -152,7 +148,7 @@ class ProductProvider extends ChangeNotifier {
           'https://images.unsplash.com/photo-1432139509613-5c4255815697?auto=format&fit=crop&w=400&q=80'
         ],
         allowNegotiation: true,
-        status: ProductStatus.published,
+        status: ProductStatus.draft,
         metrics: ProductMetrics.randomSeed(7),
         createdAt: now.subtract(const Duration(days: 7)),
         updatedAt: now.subtract(const Duration(days: 3)),

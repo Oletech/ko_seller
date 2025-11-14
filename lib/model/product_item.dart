@@ -3,7 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import 'product_metrics.dart';
 
-enum ProductStatus { draft, published, archived }
+enum ProductStatus { draft, pending, published, archived }
 
 class ProductItem extends Equatable {
   final String id;
@@ -44,7 +44,7 @@ class ProductItem extends Equatable {
       stock: 0,
       media: const [],
       allowNegotiation: false,
-      status: ProductStatus.draft,
+      status: ProductStatus.pending,
       metrics: const ProductMetrics(),
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
