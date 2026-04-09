@@ -3,18 +3,32 @@ import 'package:uuid/uuid.dart';
 
 import '../model/product_item.dart';
 import '../model/product_metrics.dart';
+import '../model/seller_profile.dart';
 import '../services/local_storage_service.dart';
+import '../services/marketplace_product_service.dart';
 
 class ProductProvider extends ChangeNotifier {
-  ProductProvider({required LocalStorageService storage}) : _storage = storage {
-    _loadProducts();
+  ProductProvider({
+    required LocalStorageService storage,
+    required MarketplaceProductService remoteService,
+  })  : _storage = storage,
+        _remoteService = remoteService {
+    _loadLocalProducts();
   }
 
   final LocalStorageService _storage;
+  final MarketplaceProductService _remoteService;
   final List<ProductItem> _products = [];
+  SellerProfile? _seller;
+  bool _isLoading = false;
+  bool _isSaving = false;
+  String? _lastError;
 
   List<ProductItem> get products =>
       _products.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  bool get isLoading => _isLoading;
+  bool get isSaving => _isSaving;
+  String? get lastError => _lastError;
 
   double get totalInventoryValue =>
       _products.fold(0, (sum, item) => sum + item.inventoryValue);
@@ -32,37 +46,101 @@ class ProductProvider extends ChangeNotifier {
         );
   }
 
-  void _loadProducts() {
-    final stored = _storage.readProducts();
-    if (stored.isEmpty) {
-      _products
-        ..clear()
-        ..addAll(_seedProducts());
-      _persist();
-    } else {
-      _products
-        ..clear()
-        ..addAll(stored);
+  Future<void> bindSeller(SellerProfile? seller) async {
+    if (_seller?.id == seller?.id &&
+        _seller?.firestoreDocId == seller?.firestoreDocId) {
+      return;
     }
+    _seller = seller;
+
+    if (seller == null) {
+      _lastError = null;
+      _loadLocalProducts();
+      return;
+    }
+
+    await refreshProducts();
+  }
+
+  Future<void> refreshProducts() async {
+    if (_seller == null) {
+      _loadLocalProducts();
+      return;
+    }
+
+    _isLoading = true;
+    _lastError = null;
     notifyListeners();
+
+    try {
+      final remoteProducts = await _remoteService.fetchSellerProducts(_seller!);
+      _products
+        ..clear()
+        ..addAll(remoteProducts);
+      await _persist();
+    } catch (_) {
+      _lastError = 'Could not sync products from Firestore.';
+      _loadLocalProducts(notify: false);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  void _loadLocalProducts({bool notify = true}) {
+    final stored = _storage.readProducts();
+    _products
+      ..clear()
+      ..addAll(stored);
+    if (notify) notifyListeners();
   }
 
   Future<void> addProduct(ProductItem product) async {
-    final updated = product.copyWith(
+    if (_seller == null) {
+      throw StateError('Please sign in again before posting products.');
+    }
+
+    final draft = product.copyWith(
       id: product.id.isEmpty ? const Uuid().v4() : product.id,
+      sku: product.sku.isEmpty ? 'sku${DateTime.now().microsecondsSinceEpoch}' : product.sku,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
       metrics: ProductMetrics.randomSeed(_products.length + 1),
     );
-    _products.add(updated);
-    await _persist();
+
+    _isSaving = true;
+    _lastError = null;
     notifyListeners();
+
+    try {
+      final saved = await _remoteService.createProduct(
+        product: draft,
+        seller: _seller!,
+      );
+      _products.add(saved);
+      await _persist();
+    } catch (_) {
+      _lastError = 'Could not publish product. Please try again.';
+      rethrow;
+    } finally {
+      _isSaving = false;
+      notifyListeners();
+    }
   }
 
   Future<void> updateProduct(ProductItem product) async {
     final index = _products.indexWhere((element) => element.id == product.id);
     if (index == -1) return;
-    _products[index] = product.copyWith(updatedAt: DateTime.now());
+
+    final updated = product.copyWith(updatedAt: DateTime.now());
+    if (_seller != null && updated.id.isNotEmpty) {
+      _products[index] = await _remoteService.updateProduct(
+        product: updated,
+        seller: _seller!,
+      );
+    } else {
+      _products[index] = updated;
+    }
     await _persist();
     notifyListeners();
   }
@@ -74,12 +152,19 @@ class ProductProvider extends ChangeNotifier {
       status: status,
       updatedAt: DateTime.now(),
     );
+    if (_products[index].id.isNotEmpty) {
+      await _remoteService.setProductStatus(_products[index].id, status);
+    }
     await _persist();
     notifyListeners();
   }
 
   Future<void> removeProduct(String productId) async {
+    final removed = findById(productId);
     _products.removeWhere((element) => element.id == productId);
+    if (removed != null && removed.id.isNotEmpty) {
+      await _remoteService.removeProduct(removed.id);
+    }
     await _persist();
     notifyListeners();
   }
@@ -91,68 +176,14 @@ class ProductProvider extends ChangeNotifier {
       stock: newStock,
       updatedAt: DateTime.now(),
     );
+    if (_products[index].id.isNotEmpty) {
+      await _remoteService.updateStock(_products[index].id, newStock);
+    }
     await _persist();
     notifyListeners();
   }
 
   Future<void> _persist() async {
     await _storage.saveProducts(_products);
-  }
-
-  List<ProductItem> _seedProducts() {
-    final now = DateTime.now();
-    return [
-      ProductItem(
-        id: const Uuid().v4(),
-        title: 'Kikapu ya Kariakoo',
-        category: 'Food',
-        description:
-            'Fresh Kariakoo market grocery combo with vegetables and spices.',
-        price: 45000,
-        stock: 24,
-        media: const [
-          'https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?auto=format&fit=crop&w=400&q=80'
-        ],
-        allowNegotiation: true,
-        status: ProductStatus.published,
-        metrics: ProductMetrics.randomSeed(3),
-        createdAt: now.subtract(const Duration(days: 3)),
-        updatedAt: now.subtract(const Duration(days: 1)),
-      ),
-      ProductItem(
-        id: const Uuid().v4(),
-        title: 'Designer Kitenge Dress',
-        category: 'Fashion',
-        description:
-            'Handmade kitenge dress tailored for Kariakoo online audience.',
-        price: 95000,
-        stock: 12,
-        media: const [
-          'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=400&q=80'
-        ],
-        allowNegotiation: false,
-        status: ProductStatus.pending,
-        metrics: ProductMetrics.randomSeed(5),
-        createdAt: now.subtract(const Duration(days: 5)),
-        updatedAt: now.subtract(const Duration(days: 2)),
-      ),
-      ProductItem(
-        id: const Uuid().v4(),
-        title: 'Wholesale Rice 25kg',
-        category: 'Groceries',
-        description:
-            'Premium Tanzanian rice in 25kg bags for wholesale customers.',
-        price: 78000,
-        stock: 40,
-        media: const [
-          'https://images.unsplash.com/photo-1432139509613-5c4255815697?auto=format&fit=crop&w=400&q=80'
-        ],
-        allowNegotiation: true,
-        status: ProductStatus.draft,
-        metrics: ProductMetrics.randomSeed(7),
-        createdAt: now.subtract(const Duration(days: 7)),
-        updatedAt: now.subtract(const Duration(days: 3)),
-      ),
-    ];
   }
 }

@@ -36,17 +36,20 @@ String orderStatusLabel(OrderStatus status) {
 }
 
 class BuyerInfo extends Equatable {
+  final String userId;
   final String name;
   final String phone;
   final String avatar;
 
   const BuyerInfo({
+    this.userId = '',
     required this.name,
     required this.phone,
     this.avatar = '',
   });
 
   Map<String, dynamic> toJson() => {
+        'userId': userId,
         'name': name,
         'phone': phone,
         'avatar': avatar,
@@ -54,6 +57,7 @@ class BuyerInfo extends Equatable {
 
   factory BuyerInfo.fromJson(Map<String, dynamic> json) {
     return BuyerInfo(
+      userId: json['userId'] as String? ?? '',
       name: json['name'] as String? ?? '',
       phone: json['phone'] as String? ?? '',
       avatar: json['avatar'] as String? ?? '',
@@ -61,17 +65,19 @@ class BuyerInfo extends Equatable {
   }
 
   @override
-  List<Object?> get props => [name, phone, avatar];
+  List<Object?> get props => [userId, name, phone, avatar];
 }
 
 class ProductSnapshot extends Equatable {
   final String productId;
+  final String sellerId;
   final String title;
   final double price;
   final String image;
 
   const ProductSnapshot({
     required this.productId,
+    this.sellerId = '',
     required this.title,
     required this.price,
     required this.image,
@@ -79,6 +85,7 @@ class ProductSnapshot extends Equatable {
 
   Map<String, dynamic> toJson() => {
         'productId': productId,
+        'sellerId': sellerId,
         'title': title,
         'price': price,
         'image': image,
@@ -87,6 +94,7 @@ class ProductSnapshot extends Equatable {
   factory ProductSnapshot.fromJson(Map<String, dynamic> json) {
     return ProductSnapshot(
       productId: json['productId'] as String? ?? '',
+      sellerId: json['sellerId'] as String? ?? '',
       title: json['title'] as String? ?? '',
       price: (json['price'] as num?)?.toDouble() ?? 0,
       image: json['image'] as String? ?? '',
@@ -94,7 +102,7 @@ class ProductSnapshot extends Equatable {
   }
 
   @override
-  List<Object?> get props => [productId, title, price, image];
+  List<Object?> get props => [productId, sellerId, title, price, image];
 }
 
 class OrderTimelineEntry extends Equatable {
@@ -133,7 +141,11 @@ class OrderTimelineEntry extends Equatable {
 
 class SellerOrder extends Equatable {
   final String id;
+  final String orderDocumentId;
   final String orderNumber;
+  final String invoiceNumber;
+  final String trackNumber;
+  final String deliveryMethod;
   final BuyerInfo buyer;
   final ProductSnapshot product;
   final int quantity;
@@ -144,10 +156,15 @@ class SellerOrder extends Equatable {
   final DateTime createdAt;
   final DateTime updatedAt;
   final bool hasUnreadUpdates;
+  final bool isPaid;
 
   const SellerOrder({
     required this.id,
+    this.orderDocumentId = '',
     required this.orderNumber,
+    this.invoiceNumber = '',
+    this.trackNumber = '',
+    this.deliveryMethod = '',
     required this.buyer,
     required this.product,
     required this.quantity,
@@ -158,6 +175,7 @@ class SellerOrder extends Equatable {
     required this.createdAt,
     required this.updatedAt,
     this.hasUnreadUpdates = false,
+    this.isPaid = false,
   });
 
   double get total => product.price * quantity;
@@ -170,7 +188,11 @@ class SellerOrder extends Equatable {
 
   SellerOrder copyWith({
     String? id,
+    String? orderDocumentId,
     String? orderNumber,
+    String? invoiceNumber,
+    String? trackNumber,
+    String? deliveryMethod,
     BuyerInfo? buyer,
     ProductSnapshot? product,
     int? quantity,
@@ -181,10 +203,15 @@ class SellerOrder extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? hasUnreadUpdates,
+    bool? isPaid,
   }) {
     return SellerOrder(
       id: id ?? this.id,
+      orderDocumentId: orderDocumentId ?? this.orderDocumentId,
       orderNumber: orderNumber ?? this.orderNumber,
+      invoiceNumber: invoiceNumber ?? this.invoiceNumber,
+      trackNumber: trackNumber ?? this.trackNumber,
+      deliveryMethod: deliveryMethod ?? this.deliveryMethod,
       buyer: buyer ?? this.buyer,
       product: product ?? this.product,
       quantity: quantity ?? this.quantity,
@@ -195,13 +222,18 @@ class SellerOrder extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       hasUnreadUpdates: hasUnreadUpdates ?? this.hasUnreadUpdates,
+      isPaid: isPaid ?? this.isPaid,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'orderDocumentId': orderDocumentId,
       'orderNumber': orderNumber,
+      'invoiceNumber': invoiceNumber,
+      'trackNumber': trackNumber,
+      'deliveryMethod': deliveryMethod,
       'buyer': buyer.toJson(),
       'product': product.toJson(),
       'quantity': quantity,
@@ -212,13 +244,18 @@ class SellerOrder extends Equatable {
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'hasUnreadUpdates': hasUnreadUpdates,
+      'isPaid': isPaid,
     };
   }
 
   factory SellerOrder.fromJson(Map<String, dynamic> json) {
     return SellerOrder(
       id: json['id'] as String,
+      orderDocumentId: json['orderDocumentId'] as String? ?? '',
       orderNumber: json['orderNumber'] as String? ?? '',
+      invoiceNumber: json['invoiceNumber'] as String? ?? '',
+      trackNumber: json['trackNumber'] as String? ?? '',
+      deliveryMethod: json['deliveryMethod'] as String? ?? '',
       buyer: BuyerInfo.fromJson(Map<String, dynamic>.from(json['buyer'] ?? {})),
       product: ProductSnapshot.fromJson(
           Map<String, dynamic>.from(json['product'] ?? {})),
@@ -238,6 +275,7 @@ class SellerOrder extends Equatable {
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
           DateTime.now(),
       hasUnreadUpdates: json['hasUnreadUpdates'] as bool? ?? false,
+      isPaid: json['isPaid'] as bool? ?? false,
     );
   }
 
@@ -254,10 +292,15 @@ class SellerOrder extends Equatable {
         '#KO-${now.millisecondsSinceEpoch.toString().substring(8)}';
     return SellerOrder(
       id: const Uuid().v4(),
+      orderDocumentId: '',
       orderNumber: orderNumber,
+      invoiceNumber: '',
+      trackNumber: '',
+      deliveryMethod: 'Pick up in store',
       buyer: BuyerInfo(name: buyerName, phone: '+255712000000'),
       product: ProductSnapshot(
         productId: const Uuid().v4(),
+        sellerId: '',
         title: productTitle,
         price: price,
         image: image,
@@ -289,13 +332,18 @@ class SellerOrder extends Equatable {
       createdAt: now.subtract(const Duration(hours: 1)),
       updatedAt: now,
       hasUnreadUpdates: true,
+      isPaid: status != OrderStatus.awaitingPayment,
     );
   }
 
   @override
   List<Object?> get props => [
         id,
+        orderDocumentId,
         orderNumber,
+        invoiceNumber,
+        trackNumber,
+        deliveryMethod,
         buyer,
         product,
         quantity,
@@ -306,5 +354,6 @@ class SellerOrder extends Equatable {
         createdAt,
         updatedAt,
         hasUnreadUpdates,
+        isPaid,
       ];
 }

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:uuid/uuid.dart';
 
 import '../model/product_item.dart';
 import '../model/product_metrics.dart';
@@ -35,6 +34,7 @@ class _NewProductScreenState extends State<NewProductScreen> {
   int _coverIndex = 0;
   bool _autoPrompted = false;
   bool _isPicking = false;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -162,8 +162,8 @@ class _NewProductScreenState extends State<NewProductScreen> {
             ),
             const SizedBox(height: 12),
             SwitchListTile(
-              title: const Text('List immediately (send for review)'),
-              subtitle: const Text('We will verify before it goes live'),
+              title: const Text('Publish immediately'),
+              subtitle: const Text('Turn this on to post directly to marketplace'),
               value: _listImmediately,
               onChanged: (value) => setState(() => _listImmediately = value),
             ),
@@ -179,19 +179,25 @@ class _NewProductScreenState extends State<NewProductScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _previewProduct,
+                    onPressed: _isSaving ? null : _previewProduct,
                     child: const Text('Preview'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _saveProduct,
+                    onPressed: _isSaving ? null : _saveProduct,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: sellerRed,
                       foregroundColor: Colors.white,
                     ),
-                    child: const Text('Share Product'),
+                    child: _isSaving
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Share Product'),
                   ),
                 ),
               ],
@@ -369,14 +375,28 @@ class _NewProductScreenState extends State<NewProductScreen> {
     }
     if (!_formKey.currentState!.validate()) return;
     final product = _buildProduct();
-    await context.read<ProductProvider>().addProduct(product);
+    setState(() => _isSaving = true);
+    try {
+      await context.read<ProductProvider>().addProduct(product);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+      );
+      setState(() => _isSaving = false);
+      return;
+    }
     if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Product posted to marketplace.')),
+    );
     Navigator.of(context).pop();
   }
 
   ProductItem _buildProduct() {
     return ProductItem(
-      id: const Uuid().v4(),
+      id: '',
+      sku: '',
       title: _titleController.text,
       category: _categoryController.text,
       description: _descriptionController.text,
@@ -384,7 +404,7 @@ class _NewProductScreenState extends State<NewProductScreen> {
       stock: int.tryParse(_stockController.text) ?? 0,
       media: List<String>.from(_imagePaths),
       allowNegotiation: _allowNegotiation,
-      status: _listImmediately ? ProductStatus.pending : ProductStatus.draft,
+      status: _listImmediately ? ProductStatus.published : ProductStatus.draft,
       metrics: const ProductMetrics(),
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),

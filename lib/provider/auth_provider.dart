@@ -1,9 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../model/payment_channel.dart';
 import '../model/seller_profile.dart';
+import '../services/firebase_session_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/otp_service.dart';
+import '../services/seller_payment_method_service.dart';
+import '../services/seller_profile_service.dart';
 
 enum AuthStatus {
   uninitialized,
@@ -18,13 +23,22 @@ class AuthProvider extends ChangeNotifier {
   AuthProvider({
     required LocalStorageService storage,
     required OtpService otpService,
+    required FirebaseSessionService sessionService,
+    required SellerProfileService sellerProfileService,
+    required SellerPaymentMethodService sellerPaymentMethodService,
   })  : _storage = storage,
-        _otpService = otpService {
+        _otpService = otpService,
+        _sessionService = sessionService,
+        _sellerProfileService = sellerProfileService,
+        _sellerPaymentMethodService = sellerPaymentMethodService {
     _bootstrap();
   }
 
   final LocalStorageService _storage;
   final OtpService _otpService;
+  final FirebaseSessionService _sessionService;
+  final SellerProfileService _sellerProfileService;
+  final SellerPaymentMethodService _sellerPaymentMethodService;
 
   SellerProfile? _profile;
   AuthStatus _status = AuthStatus.uninitialized;
@@ -38,11 +52,24 @@ class AuthProvider extends ChangeNotifier {
 
   bool get isAuthenticated => _status == AuthStatus.authenticated;
 
-  void _bootstrap() {
+  Future<void> _bootstrap() async {
     final storedProfile = _storage.readSellerProfile();
     if (storedProfile != null) {
       _profile = storedProfile;
       _status = AuthStatus.authenticated;
+      notifyListeners();
+      try {
+        final seller = await _sellerProfileService.syncSellerByPhone(
+          phoneNumber: storedProfile.phoneNumber,
+          localProfile: storedProfile,
+        );
+        final channels =
+            await _sellerPaymentMethodService.fetchPaymentChannels(seller);
+        _profile = seller.copyWith(paymentChannels: channels);
+        await _storage.saveSellerProfile(_profile!);
+      } catch (_) {
+        _profile = storedProfile;
+      }
     } else {
       _status = AuthStatus.unauthenticated;
     }
@@ -78,8 +105,20 @@ class AuthProvider extends ChangeNotifier {
       return false;
     }
 
-    _profile ??= SellerProfile.empty(_pendingPhoneNumber!);
-    await _storage.saveSellerProfile(_profile!);
+    final baseProfile = _profile ?? SellerProfile.empty(_pendingPhoneNumber!);
+    try {
+      final seller = await _sellerProfileService.syncSellerByPhone(
+        phoneNumber: _pendingPhoneNumber!,
+        localProfile: baseProfile,
+      );
+      final channels =
+          await _sellerPaymentMethodService.fetchPaymentChannels(seller);
+      _profile = seller.copyWith(paymentChannels: channels);
+      await _storage.saveSellerProfile(_profile!);
+    } catch (_) {
+      _profile = baseProfile;
+      await _storage.saveSellerProfile(_profile!);
+    }
 
     _status = AuthStatus.authenticated;
     _pendingPhoneNumber = null;
@@ -92,6 +131,7 @@ class AuthProvider extends ChangeNotifier {
     String? displayName,
     String? storeName,
     String? businessType,
+    String? email,
     String? bio,
     String? avatarUrl,
   }) async {
@@ -100,9 +140,31 @@ class AuthProvider extends ChangeNotifier {
       displayName: displayName,
       storeName: storeName,
       businessType: businessType,
+      email: email,
       bio: bio,
       avatarUrl: avatarUrl,
       updatedAt: DateTime.now(),
+    );
+    try {
+      _profile = await _sellerProfileService.updateSellerProfile(_profile!);
+    } catch (_) {}
+    await _storage.saveSellerProfile(_profile!);
+    notifyListeners();
+  }
+
+  Future<void> uploadProfileImage(File imageFile) async {
+    if (_profile == null) return;
+    final updated = await _sellerProfileService.uploadSellerLogo(
+      profile: _profile!,
+      imageFile: imageFile,
+    );
+    _profile = updated.copyWith(
+      paymentChannels: _profile!.paymentChannels,
+      inventoryValue: _profile!.inventoryValue,
+      salesValue: _profile!.salesValue,
+      totalOrders: _profile!.totalOrders,
+      bio: _profile!.bio,
+      notificationsEnabled: _profile!.notificationsEnabled,
     );
     await _storage.saveSellerProfile(_profile!);
     notifyListeners();
@@ -115,14 +177,18 @@ class AuthProvider extends ChangeNotifier {
         ? channel
         : channel.copyWith(isPrimary: channels.isEmpty);
 
-    final updatedChannels = normalizedChannel.isPrimary
+    final persisted = await _sellerPaymentMethodService.addPaymentChannel(
+      seller: _profile!,
+      channel: normalizedChannel,
+    );
+    final normalizedChannels = normalizedChannel.isPrimary
         ? [
-            normalizedChannel,
+            persisted.copyWith(isPrimary: true),
             ...channels.map((e) => e.copyWith(isPrimary: false)),
           ]
-        : [...channels, normalizedChannel];
+        : [...channels, persisted];
 
-    _profile = _profile!.copyWith(paymentChannels: updatedChannels);
+    _profile = _profile!.copyWith(paymentChannels: normalizedChannels);
     await _storage.saveSellerProfile(_profile!);
     notifyListeners();
   }
@@ -137,6 +203,10 @@ class AuthProvider extends ChangeNotifier {
         )
         .toList();
 
+    await _sellerPaymentMethodService.setPrimaryChannel(
+      seller: _profile!,
+      channelId: channelId,
+    );
     _profile = _profile!.copyWith(paymentChannels: updatedChannels);
     await _storage.saveSellerProfile(_profile!);
     notifyListeners();
@@ -150,6 +220,13 @@ class AuthProvider extends ChangeNotifier {
     if (filtered.isNotEmpty && !filtered.any((element) => element.isPrimary)) {
       filtered[0] = filtered[0].copyWith(isPrimary: true);
     }
+    await _sellerPaymentMethodService.removePaymentChannel(channelId);
+    if (filtered.isNotEmpty) {
+      await _sellerPaymentMethodService.setPrimaryChannel(
+        seller: _profile!,
+        channelId: filtered.first.id,
+      );
+    }
     _profile = _profile!.copyWith(paymentChannels: filtered);
     await _storage.saveSellerProfile(_profile!);
     notifyListeners();
@@ -160,6 +237,7 @@ class AuthProvider extends ChangeNotifier {
     _status = AuthStatus.unauthenticated;
     _pendingPhoneNumber = null;
     _debugCode = null;
+    await _sessionService.signOut();
     await _storage.clearAll();
     notifyListeners();
   }

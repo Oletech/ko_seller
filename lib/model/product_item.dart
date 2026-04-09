@@ -7,6 +7,7 @@ enum ProductStatus { draft, pending, published, archived }
 
 class ProductItem extends Equatable {
   final String id;
+  final String sku;
   final String title;
   final String category;
   final String description;
@@ -21,6 +22,7 @@ class ProductItem extends Equatable {
 
   const ProductItem({
     required this.id,
+    required this.sku,
     required this.title,
     required this.category,
     required this.description,
@@ -37,6 +39,7 @@ class ProductItem extends Equatable {
   factory ProductItem.empty() {
     return ProductItem(
       id: const Uuid().v4(),
+      sku: '',
       title: '',
       category: 'General',
       description: '',
@@ -57,6 +60,7 @@ class ProductItem extends Equatable {
 
   ProductItem copyWith({
     String? id,
+    String? sku,
     String? title,
     String? category,
     String? description,
@@ -71,6 +75,7 @@ class ProductItem extends Equatable {
   }) {
     return ProductItem(
       id: id ?? this.id,
+      sku: sku ?? this.sku,
       title: title ?? this.title,
       category: category ?? this.category,
       description: description ?? this.description,
@@ -88,6 +93,7 @@ class ProductItem extends Equatable {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'sku': sku,
       'title': title,
       'category': category,
       'description': description,
@@ -105,6 +111,7 @@ class ProductItem extends Equatable {
   factory ProductItem.fromJson(Map<String, dynamic> json) {
     return ProductItem(
       id: json['id'] as String,
+      sku: json['sku'] as String? ?? '',
       title: json['title'] as String? ?? '',
       category: json['category'] as String? ?? 'General',
       description: json['description'] as String? ?? '',
@@ -129,6 +136,7 @@ class ProductItem extends Equatable {
   @override
   List<Object?> get props => [
         id,
+        sku,
         title,
         category,
         description,
