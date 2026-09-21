@@ -118,11 +118,10 @@ class MarketplaceProductService {
     ProductStatus status,
   ) async {
     await _sessionService.ensureSignedIn();
+    final moderationFields = _sellerModerationFields(status);
     await _products.doc(firestoreId).set(
       {
-        'sellerStatus': status.name,
-        'approved': status == ProductStatus.published,
-        'availability': status == ProductStatus.published,
+        ...moderationFields,
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
@@ -159,6 +158,13 @@ class MarketplaceProductService {
       category: '${data['categoryName'] ?? 'General'}',
       description: '${data['productDescriptions'] ?? ''}',
       price: _asDouble(data['priceTo'] ?? data['price']),
+      purchaseMode: '${data['purchaseMode'] ?? 'retail'}',
+      unitPrice: _asDouble(data['unitPrice'] ?? data['price']),
+      availableForRetail: data['availableForRetail'] as bool? ?? true,
+      availableForWholesale: data['availableForWholesale'] as bool? ?? false,
+      retailPrice: _asDouble(data['retailPrice'] ?? data['price']),
+      wholesalePrice: _asDouble(data['wholesalePrice']),
+      wholesaleMinQty: _asInt(data['wholesaleMinQty']) ?? 1,
       stock: _asInt(data['stock']) ?? _extractStock(data['color']),
       media: images,
       allowNegotiation: data['allowNegotiation'] as bool? ?? false,
@@ -176,6 +182,7 @@ class MarketplaceProductService {
     required String firestoreId,
     required bool isUpdate,
   }) {
+    final ownerUid = _sessionService.currentUser?.uid ?? '';
     final sellerName = seller.storeName.trim().isNotEmpty
         ? seller.storeName.trim()
         : seller.displayName.trim().isNotEmpty
@@ -186,7 +193,12 @@ class MarketplaceProductService {
         : product.category.trim();
     final productName = product.title.trim();
     final description = product.description.trim();
-    final priceValue = _formatPrice(product.price);
+    final basePrice = product.displayPrice;
+    final lowestPrice = product.lowestPrice > 0 ? product.lowestPrice : basePrice;
+    final highestPrice =
+        product.highestPrice > 0 ? product.highestPrice : basePrice;
+    final priceValue = _formatPrice(basePrice);
+    final moderationFields = _sellerModerationFields(product.status);
 
     return {
       'productId': product.sku.isEmpty ? _buildSku() : product.sku,
@@ -194,46 +206,67 @@ class MarketplaceProductService {
       'categoryName': category,
       'productDescriptions': description,
       'price': priceValue,
-      'priceFrom': priceValue,
-      'priceTo': priceValue,
+      'priceFrom': _formatPrice(lowestPrice),
+      'priceTo': _formatPrice(highestPrice),
+      'purchaseMode': product.normalizedPurchaseMode,
+      'unitPrice': basePrice,
+      'availableForRetail': product.availableForRetail,
+      'availableForWholesale': product.availableForWholesale,
+      'retailPrice': product.availableForRetail ? product.retailPrice : 0,
+      'wholesalePrice':
+          product.availableForWholesale ? product.wholesalePrice : 0,
+      'wholesaleMinQty':
+          product.availableForWholesale ? product.wholesaleMinQty : 1,
       'color': _buildColorData(product.stock),
-      'productCondition': 'new',
       'image': imageUrls.isEmpty ? 'null' : imageUrls.first,
       'gallery': imageUrls,
-      'brand': 'null',
       'offers': {
         'type': 'Offer',
         'priceCurrency': 'TZS',
         'price': priceValue,
         'priceValidUntil': '0000-00-00',
       },
-      'availability': product.status == ProductStatus.published,
+      'availability': moderationFields['availability'],
       'priceCurrency': 'TZS',
-      'aggregateRating': {
-        'type': 'AggregateRating',
-        'ratingValue': '0',
-        'reviewCount': '0',
-      },
       'seller': {
         'id': seller.productSellerId,
         'firestoreDocId': seller.firestoreDocId,
+        'ownerUid': ownerUid,
         'type': seller.businessType.trim().isEmpty
             ? 'null'
             : seller.businessType.trim(),
         'name': sellerName,
       },
-      'min_order': 1,
-      'approved': product.status == ProductStatus.published,
-      'viewer': 0,
-      'num_order': 0,
-      'material': '',
-      'hotdeal': false,
+      'min_order':
+          product.availableForWholesale && !product.availableForRetail
+              ? product.wholesaleMinQty
+              : 1,
+      'approved': moderationFields['approved'],
       'firestore_id': firestoreId,
-      'sellerStatus': product.status.name,
+      'sellerStatus': moderationFields['sellerStatus'],
+      'moderationStatus': moderationFields['moderationStatus'],
       'allowNegotiation': product.allowNegotiation,
       'stock': product.stock,
       'updatedAt': FieldValue.serverTimestamp(),
-      if (!isUpdate) 'releaseDate': FieldValue.serverTimestamp(),
+      if (moderationFields['submittedAt'] != null)
+        'submittedAt': moderationFields['submittedAt'],
+      // Marketplace-owned counters and metadata are initialised once and
+      // never reset by seller edits (review fields stay untouched too; the
+      // rules reject writes that change them).
+      if (!isUpdate) ...{
+        'productCondition': 'new',
+        'brand': 'null',
+        'aggregateRating': {
+          'type': 'AggregateRating',
+          'ratingValue': '0',
+          'reviewCount': '0',
+        },
+        'viewer': 0,
+        'num_order': 0,
+        'material': '',
+        'hotdeal': false,
+        'releaseDate': FieldValue.serverTimestamp(),
+      },
     };
   }
 
@@ -279,6 +312,34 @@ class MarketplaceProductService {
     };
   }
 
+  Map<String, dynamic> _sellerModerationFields(ProductStatus status) {
+    switch (status) {
+      case ProductStatus.pending:
+      case ProductStatus.published:
+        return {
+          'sellerStatus': 'pending',
+          'moderationStatus': 'submitted',
+          'approved': false,
+          'availability': false,
+          'submittedAt': FieldValue.serverTimestamp(),
+        };
+      case ProductStatus.archived:
+        return {
+          'sellerStatus': 'archived',
+          'moderationStatus': 'archived',
+          'approved': false,
+          'availability': false,
+        };
+      case ProductStatus.draft:
+        return {
+          'sellerStatus': 'draft',
+          'moderationStatus': 'draft',
+          'approved': false,
+          'availability': false,
+        };
+    }
+  }
+
   List<String> _extractImages(Map<String, dynamic> data) {
     final gallery = data['gallery'];
     if (gallery is Iterable) {
@@ -295,6 +356,19 @@ class MarketplaceProductService {
   }
 
   ProductStatus _resolveStatus(Map<String, dynamic> data) {
+    final moderationStatus = '${data['moderationStatus'] ?? ''}'.trim();
+    switch (moderationStatus) {
+      case 'approved':
+        return ProductStatus.published;
+      case 'submitted':
+        return ProductStatus.pending;
+      case 'archived':
+        return ProductStatus.archived;
+      case 'rejected':
+      case 'draft':
+        return ProductStatus.draft;
+    }
+
     final sellerStatus = data['sellerStatus'];
     if (sellerStatus is String) {
       return ProductStatus.values.firstWhere(

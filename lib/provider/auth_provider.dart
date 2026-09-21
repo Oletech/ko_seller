@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import '../model/seller_profile.dart';
 import '../services/firebase_session_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/otp_service.dart';
+import '../services/push_notification_service.dart';
 import '../services/seller_payment_method_service.dart';
 import '../services/seller_profile_service.dart';
 
@@ -26,12 +28,16 @@ class AuthProvider extends ChangeNotifier {
     required FirebaseSessionService sessionService,
     required SellerProfileService sellerProfileService,
     required SellerPaymentMethodService sellerPaymentMethodService,
+    required PushNotificationService pushNotificationService,
   })  : _storage = storage,
         _otpService = otpService,
         _sessionService = sessionService,
         _sellerProfileService = sellerProfileService,
-        _sellerPaymentMethodService = sellerPaymentMethodService {
+        _sellerPaymentMethodService = sellerPaymentMethodService,
+        _pushNotificationService = pushNotificationService {
     _bootstrap();
+    _tokenRefreshSubscription =
+        _pushNotificationService.tokenRefreshes.listen(_registerToken);
   }
 
   final LocalStorageService _storage;
@@ -39,6 +45,8 @@ class AuthProvider extends ChangeNotifier {
   final FirebaseSessionService _sessionService;
   final SellerProfileService _sellerProfileService;
   final SellerPaymentMethodService _sellerPaymentMethodService;
+  final PushNotificationService _pushNotificationService;
+  late final StreamSubscription<String> _tokenRefreshSubscription;
 
   SellerProfile? _profile;
   AuthStatus _status = AuthStatus.uninitialized;
@@ -54,6 +62,15 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _bootstrap() async {
     final storedProfile = _storage.readSellerProfile();
+    if (storedProfile != null && _sessionService.currentUser == null) {
+      // The cached profile outlived the Firebase session (reinstall, token
+      // revocation). Every backend call would fail, so ask for a fresh OTP.
+      await _storage.clearAll();
+      _profile = null;
+      _status = AuthStatus.unauthenticated;
+      notifyListeners();
+      return;
+    }
     if (storedProfile != null) {
       _profile = storedProfile;
       _status = AuthStatus.authenticated;
@@ -67,8 +84,10 @@ class AuthProvider extends ChangeNotifier {
             await _sellerPaymentMethodService.fetchPaymentChannels(seller);
         _profile = seller.copyWith(paymentChannels: channels);
         await _storage.saveSellerProfile(_profile!);
+        await _registerCurrentDeviceForNotifications();
       } catch (_) {
         _profile = storedProfile;
+        await _registerCurrentDeviceForNotifications();
       }
     } else {
       _status = AuthStatus.unauthenticated;
@@ -80,11 +99,17 @@ class AuthProvider extends ChangeNotifier {
     _status = AuthStatus.requestingOtp;
     notifyListeners();
 
-    final ticket = _otpService.requestCode(phoneNumber, digits: 4);
-    _pendingPhoneNumber = phoneNumber;
-    _debugCode = ticket.code;
-    _status = AuthStatus.otpSent;
-    notifyListeners();
+    try {
+      final ticket = await _otpService.requestCode(phoneNumber);
+      _pendingPhoneNumber = ticket.phoneNumber;
+      _debugCode = null;
+      _status = AuthStatus.otpSent;
+      notifyListeners();
+    } on OtpException {
+      _status = AuthStatus.unauthenticated;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<bool> verifyOtp(String code) async {
@@ -94,10 +119,17 @@ class AuthProvider extends ChangeNotifier {
     _status = AuthStatus.verifyingOtp;
     notifyListeners();
 
-    final isValid = _otpService.verifyCode(
-      phoneNumber: _pendingPhoneNumber!,
-      code: code,
-    );
+    late final bool isValid;
+    try {
+      isValid = await _otpService.verifyCode(
+        phoneNumber: _pendingPhoneNumber!,
+        code: code,
+      );
+    } on OtpException {
+      _status = AuthStatus.otpSent;
+      notifyListeners();
+      rethrow;
+    }
 
     if (!isValid) {
       _status = AuthStatus.otpSent;
@@ -115,6 +147,7 @@ class AuthProvider extends ChangeNotifier {
           await _sellerPaymentMethodService.fetchPaymentChannels(seller);
       _profile = seller.copyWith(paymentChannels: channels);
       await _storage.saveSellerProfile(_profile!);
+      await _registerCurrentDeviceForNotifications();
     } catch (_) {
       _profile = baseProfile;
       await _storage.saveSellerProfile(_profile!);
@@ -150,6 +183,24 @@ class AuthProvider extends ChangeNotifier {
     } catch (_) {}
     await _storage.saveSellerProfile(_profile!);
     notifyListeners();
+  }
+
+  Future<void> _registerCurrentDeviceForNotifications() async {
+    final token = await _pushNotificationService.getToken();
+    await _registerToken(token);
+  }
+
+  Future<void> _registerToken(String? token) async {
+    final seller = _profile;
+    if (seller == null || !seller.notificationsEnabled || token == null) {
+      return;
+    }
+    try {
+      await _sellerProfileService.registerNotificationToken(
+        seller: seller,
+        token: token,
+      );
+    } catch (_) {}
   }
 
   Future<void> uploadProfileImage(File imageFile) async {
@@ -233,6 +284,16 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    final seller = _profile;
+    final token = await _pushNotificationService.getToken();
+    if (seller != null && token != null) {
+      try {
+        await _sellerProfileService.unregisterNotificationToken(
+          seller: seller,
+          token: token,
+        );
+      } catch (_) {}
+    }
     _profile = null;
     _status = AuthStatus.unauthenticated;
     _pendingPhoneNumber = null;
@@ -240,5 +301,11 @@ class AuthProvider extends ChangeNotifier {
     await _sessionService.signOut();
     await _storage.clearAll();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _tokenRefreshSubscription.cancel();
+    super.dispose();
   }
 }

@@ -52,46 +52,69 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   Future<void> _verify() async {
-    if (_otp.length < 4) return;
+    if (_otp.length < 6) return;
     final auth = context.read<AuthProvider>();
     setState(() {
       _isLoading = true;
     });
-    final success = await auth.verifyOtp(_otp);
-    setState(() {
-      _isLoading = false;
-    });
-    if (!mounted) return;
-    if (success) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-        (route) => false,
-      );
-    } else {
+    try {
+      final success = await auth.verifyOtp(_otp);
+      if (!mounted) return;
+      if (success) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (route) => false,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invalid or expired OTP, jaribu tena.'),
+            backgroundColor: sellerRed,
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid or expired OTP, jaribu tena.'),
+        SnackBar(
+          content: Text('$error'),
           backgroundColor: sellerRed,
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _resend() async {
     final auth = context.read<AuthProvider>();
-    await auth.requestOtp(widget.phoneNumber);
-    _startTimer();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('OTP mpya: ${auth.debugCode}'),
-      ),
-    );
+    try {
+      await auth.requestOtp(widget.phoneNumber);
+      _startTimer();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: sellerGreen,
+          content: Text('Tumetuma OTP mpya kwa namba yako.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: sellerRed,
+          content: Text('$error'),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -122,8 +145,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
               FadeInDown(
                 delay: const Duration(milliseconds: 250),
                 child: Text(
-                  'Tumepeleka msimbo wa tarakimu 4 kwa ${widget.phoneNumber}\n'
-                  'Msimbo unatumika kujenga uhusiano wa Alice na Bob salama.',
+                  'Tumepeleka msimbo wa tarakimu 6 kwa ${widget.phoneNumber}.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey.shade600),
                 ),
@@ -134,17 +156,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 child: Column(
                   children: [
                     VerificationCode(
-                      length: 4,
+                      length: 6,
                       textStyle: const TextStyle(fontSize: 20),
                       underlineColor: sellerGreen,
                       keyboardType: TextInputType.number,
                       onCompleted: (value) => _otp = value,
                       onEditing: (_) {},
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Demo OTP: ${auth.debugCode ?? 'Pending...'}',
-                      style: const TextStyle(color: sellerGray),
                     ),
                   ],
                 ),

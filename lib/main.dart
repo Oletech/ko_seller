@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,19 +15,29 @@ import 'services/local_storage_service.dart';
 import 'services/marketplace_order_service.dart';
 import 'services/marketplace_product_service.dart';
 import 'services/otp_service.dart';
+import 'services/push_notification_service.dart';
 import 'services/seller_payment_method_service.dart';
 import 'services/seller_profile_service.dart';
 import 'utils/route.dart';
 import 'utils/style.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   final prefs = await SharedPreferences.getInstance();
   final storage = LocalStorageService(prefs);
   final otpService = OtpService();
+  final pushNotificationService = PushNotificationService();
   final sessionService = FirebaseSessionService();
   final sellerProfileService =
       SellerProfileService(sessionService: sessionService);
@@ -41,6 +52,7 @@ void main() async {
     KariakooSellerApp(
       storage: storage,
       otpService: otpService,
+      pushNotificationService: pushNotificationService,
       sessionService: sessionService,
       sellerProfileService: sellerProfileService,
       sellerPaymentMethodService: sellerPaymentMethodService,
@@ -55,6 +67,7 @@ class KariakooSellerApp extends StatelessWidget {
     super.key,
     required this.storage,
     required this.otpService,
+    required this.pushNotificationService,
     required this.sessionService,
     required this.sellerProfileService,
     required this.sellerPaymentMethodService,
@@ -64,6 +77,7 @@ class KariakooSellerApp extends StatelessWidget {
 
   final LocalStorageService storage;
   final OtpService otpService;
+  final PushNotificationService pushNotificationService;
   final FirebaseSessionService sessionService;
   final SellerProfileService sellerProfileService;
   final SellerPaymentMethodService sellerPaymentMethodService;
@@ -81,10 +95,14 @@ class KariakooSellerApp extends StatelessWidget {
             sessionService: sessionService,
             sellerProfileService: sellerProfileService,
             sellerPaymentMethodService: sellerPaymentMethodService,
+            pushNotificationService: pushNotificationService,
           ),
         ),
         ChangeNotifierProvider(
-          create: (_) => NotificationProvider(storage: storage),
+          create: (_) => NotificationProvider(
+            storage: storage,
+            pushNotificationService: pushNotificationService,
+          ),
         ),
         ChangeNotifierProxyProvider<AuthProvider, ProductProvider>(
           create: (_) => ProductProvider(
@@ -101,7 +119,8 @@ class KariakooSellerApp extends StatelessWidget {
             return provider;
           },
         ),
-        ChangeNotifierProxyProvider2<AuthProvider, ProductProvider, OrderProvider>(
+        ChangeNotifierProxyProvider2<AuthProvider, ProductProvider,
+            OrderProvider>(
           create: (context) => OrderProvider(
             notificationProvider: context.read<NotificationProvider>(),
             remoteService: marketplaceOrderService,

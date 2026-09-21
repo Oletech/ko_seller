@@ -139,7 +139,110 @@ class OrderTimelineEntry extends Equatable {
   List<Object?> get props => [title, description, timestamp, isCompleted];
 }
 
+enum OrderProofStatus { missing, submitted, verified, rejected }
+
+String orderProofStatusLabel(OrderProofStatus status) {
+  switch (status) {
+    case OrderProofStatus.missing:
+      return 'Missing';
+    case OrderProofStatus.submitted:
+      return 'Submitted';
+    case OrderProofStatus.verified:
+      return 'Verified';
+    case OrderProofStatus.rejected:
+      return 'Rejected';
+  }
+}
+
+class OrderProof extends Equatable {
+  final String label;
+  final OrderProofStatus status;
+  final String reference;
+  final String note;
+  final String assetUrl;
+  final DateTime? submittedAt;
+  final DateTime? verifiedAt;
+
+  const OrderProof({
+    required this.label,
+    this.status = OrderProofStatus.missing,
+    this.reference = '',
+    this.note = '',
+    this.assetUrl = '',
+    this.submittedAt,
+    this.verifiedAt,
+  });
+
+  bool get isAvailable =>
+      status != OrderProofStatus.missing ||
+      reference.isNotEmpty ||
+      note.isNotEmpty ||
+      assetUrl.isNotEmpty;
+
+  OrderProof copyWith({
+    String? label,
+    OrderProofStatus? status,
+    String? reference,
+    String? note,
+    String? assetUrl,
+    DateTime? submittedAt,
+    DateTime? verifiedAt,
+  }) {
+    return OrderProof(
+      label: label ?? this.label,
+      status: status ?? this.status,
+      reference: reference ?? this.reference,
+      note: note ?? this.note,
+      assetUrl: assetUrl ?? this.assetUrl,
+      submittedAt: submittedAt ?? this.submittedAt,
+      verifiedAt: verifiedAt ?? this.verifiedAt,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'status': status.name,
+        'reference': reference,
+        'note': note,
+        'assetUrl': assetUrl,
+        'submittedAt': submittedAt?.toIso8601String(),
+        'verifiedAt': verifiedAt?.toIso8601String(),
+      };
+
+  factory OrderProof.fromJson(Map<String, dynamic> json) {
+    return OrderProof(
+      label: json['label'] as String? ?? 'Proof',
+      status: OrderProofStatus.values.firstWhere(
+        (element) => element.name == json['status'],
+        orElse: () => OrderProofStatus.missing,
+      ),
+      reference: json['reference'] as String? ?? '',
+      note: json['note'] as String? ?? '',
+      assetUrl: json['assetUrl'] as String? ?? '',
+      submittedAt: json['submittedAt'] == null
+          ? null
+          : DateTime.tryParse(json['submittedAt'] as String),
+      verifiedAt: json['verifiedAt'] == null
+          ? null
+          : DateTime.tryParse(json['verifiedAt'] as String),
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+        label,
+        status,
+        reference,
+        note,
+        assetUrl,
+        submittedAt,
+        verifiedAt,
+      ];
+}
+
 class SellerOrder extends Equatable {
+  static const Duration buyerPaymentWindow = Duration(minutes: 15);
+
   final String id;
   final String orderDocumentId;
   final String orderNumber;
@@ -151,10 +254,15 @@ class SellerOrder extends Equatable {
   final int quantity;
   final OrderStatus status;
   final EscrowPayment escrow;
+  final OrderProof paymentProof;
+  final OrderProof deliveryProof;
   final String shippingAddress;
   final List<OrderTimelineEntry> timeline;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// Server-set payment deadline (`paymentExpiresAt` on the order document).
+  final DateTime? paymentExpiresAt;
   final bool hasUnreadUpdates;
   final bool isPaid;
 
@@ -170,17 +278,59 @@ class SellerOrder extends Equatable {
     required this.quantity,
     required this.status,
     required this.escrow,
+    this.paymentProof = const OrderProof(label: 'Payment proof'),
+    this.deliveryProof = const OrderProof(label: 'Delivery proof'),
     required this.shippingAddress,
     required this.timeline,
     required this.createdAt,
     required this.updatedAt,
+    this.paymentExpiresAt,
     this.hasUnreadUpdates = false,
     this.isPaid = false,
   });
 
   double get total => product.price * quantity;
 
+  bool get isAwaitingBuyerPayment =>
+      status == OrderStatus.awaitingPayment && !isPaid;
+
+  bool get isEscrowFunded =>
+      status == OrderStatus.escrowFunded ||
+      status == OrderStatus.preparingShipment ||
+      status == OrderStatus.outForDelivery ||
+      status == OrderStatus.delivered ||
+      status == OrderStatus.completed;
+
+  bool get isPayoutReleased => status == OrderStatus.completed;
+
+  bool get isStockReserved =>
+      status == OrderStatus.awaitingPayment ||
+      status == OrderStatus.escrowFunded ||
+      status == OrderStatus.preparingShipment ||
+      status == OrderStatus.outForDelivery ||
+      status == OrderStatus.delivered ||
+      status == OrderStatus.disputed;
+
+  bool get isOpenLifecycle =>
+      status == OrderStatus.awaitingPayment ||
+      status == OrderStatus.escrowFunded ||
+      status == OrderStatus.preparingShipment ||
+      status == OrderStatus.outForDelivery ||
+      status == OrderStatus.delivered ||
+      status == OrderStatus.disputed;
+
+  DateTime get paymentDeadline =>
+      paymentExpiresAt ?? createdAt.add(buyerPaymentWindow);
+
+  Duration paymentTimeRemaining(DateTime now) =>
+      paymentDeadline.difference(now);
+
+  bool isPaymentWindowExpired(DateTime now) {
+    return isAwaitingBuyerPayment && !paymentDeadline.isAfter(now);
+  }
+
   bool get requiresAction =>
+      status == OrderStatus.escrowFunded ||
       status == OrderStatus.preparingShipment ||
       status == OrderStatus.outForDelivery ||
       status == OrderStatus.delivered ||
@@ -198,10 +348,13 @@ class SellerOrder extends Equatable {
     int? quantity,
     OrderStatus? status,
     EscrowPayment? escrow,
+    OrderProof? paymentProof,
+    OrderProof? deliveryProof,
     String? shippingAddress,
     List<OrderTimelineEntry>? timeline,
     DateTime? createdAt,
     DateTime? updatedAt,
+    DateTime? paymentExpiresAt,
     bool? hasUnreadUpdates,
     bool? isPaid,
   }) {
@@ -217,10 +370,13 @@ class SellerOrder extends Equatable {
       quantity: quantity ?? this.quantity,
       status: status ?? this.status,
       escrow: escrow ?? this.escrow,
+      paymentProof: paymentProof ?? this.paymentProof,
+      deliveryProof: deliveryProof ?? this.deliveryProof,
       shippingAddress: shippingAddress ?? this.shippingAddress,
       timeline: timeline ?? this.timeline,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      paymentExpiresAt: paymentExpiresAt ?? this.paymentExpiresAt,
       hasUnreadUpdates: hasUnreadUpdates ?? this.hasUnreadUpdates,
       isPaid: isPaid ?? this.isPaid,
     );
@@ -239,10 +395,13 @@ class SellerOrder extends Equatable {
       'quantity': quantity,
       'status': status.name,
       'escrow': escrow.toJson(),
+      'paymentProof': paymentProof.toJson(),
+      'deliveryProof': deliveryProof.toJson(),
       'shippingAddress': shippingAddress,
       'timeline': timeline.map((e) => e.toJson()).toList(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'paymentExpiresAt': paymentExpiresAt?.toIso8601String(),
       'hasUnreadUpdates': hasUnreadUpdates,
       'isPaid': isPaid,
     };
@@ -266,6 +425,16 @@ class SellerOrder extends Equatable {
       ),
       escrow: EscrowPayment.fromJson(
           Map<String, dynamic>.from(json['escrow'] ?? {})),
+      paymentProof: OrderProof.fromJson(
+        Map<String, dynamic>.from(
+          json['paymentProof'] ?? const {'label': 'Payment proof'},
+        ),
+      ),
+      deliveryProof: OrderProof.fromJson(
+        Map<String, dynamic>.from(
+          json['deliveryProof'] ?? const {'label': 'Delivery proof'},
+        ),
+      ),
       shippingAddress: json['shippingAddress'] as String? ?? '',
       timeline: (json['timeline'] as List<dynamic>? ?? [])
           .map((e) => OrderTimelineEntry.fromJson(Map<String, dynamic>.from(e)))
@@ -274,6 +443,8 @@ class SellerOrder extends Equatable {
           DateTime.now(),
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
           DateTime.now(),
+      paymentExpiresAt:
+          DateTime.tryParse(json['paymentExpiresAt'] as String? ?? ''),
       hasUnreadUpdates: json['hasUnreadUpdates'] as bool? ?? false,
       isPaid: json['isPaid'] as bool? ?? false,
     );
@@ -315,6 +486,18 @@ class SellerOrder extends Equatable {
             ? EscrowState.awaitingFunding
             : EscrowState.funded,
       ),
+      paymentProof: OrderProof(
+        label: 'Payment proof',
+        status: status == OrderStatus.awaitingPayment
+            ? OrderProofStatus.missing
+            : OrderProofStatus.verified,
+      ),
+      deliveryProof: OrderProof(
+        label: 'Delivery proof',
+        status: status.index >= OrderStatus.outForDelivery.index
+            ? OrderProofStatus.submitted
+            : OrderProofStatus.missing,
+      ),
       shippingAddress: 'Kariakoo, Ilala - Dar es Salaam',
       timeline: [
         OrderTimelineEntry(
@@ -324,7 +507,8 @@ class SellerOrder extends Equatable {
         ),
         OrderTimelineEntry(
           title: 'Waiting for Payment',
-          description: 'Escrow will be funded once buyer pays',
+          description:
+              'Buyer has 15 minutes to pay before the seller starts fulfilment.',
           timestamp: now.subtract(const Duration(minutes: 10)),
           isCompleted: status != OrderStatus.awaitingPayment,
         ),
@@ -349,10 +533,13 @@ class SellerOrder extends Equatable {
         quantity,
         status,
         escrow,
+        paymentProof,
+        deliveryProof,
         shippingAddress,
         timeline,
         createdAt,
         updatedAt,
+        paymentExpiresAt,
         hasUnreadUpdates,
         isPaid,
       ];

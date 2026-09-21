@@ -17,25 +17,27 @@ class SellerPaymentMethodService {
   CollectionReference<Map<String, dynamic>> get _methods =>
       _firestore.collection('seller_payment_method');
 
+  /// Payout channels are read by `ownerUid`, not by `sellerid`: Firestore
+  /// evaluates rules against the query, and the rule on this collection keys
+  /// off `ownerUid`, so a `sellerid` query is rejected before it runs.
   Future<List<PaymentChannel>> fetchPaymentChannels(
       SellerProfile seller) async {
-    await _sessionService.ensureSignedIn();
-    final sellerIds = seller.productSellerIds;
-    if (sellerIds.isEmpty) return const [];
+    final user = await _sessionService.ensureSignedIn();
+    final ownerUid = user?.uid ?? '';
+    if (ownerUid.isEmpty) return const [];
 
-    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    if (sellerIds.length == 1) {
-      final snapshot =
-          await _methods.where('sellerid', isEqualTo: sellerIds.first).get();
-      docs.addAll(snapshot.docs);
-    } else {
-      final snapshot =
-          await _methods.where('sellerid', whereIn: sellerIds).get();
-      docs.addAll(snapshot.docs);
-    }
-
+    final snapshot = await _methods.where('ownerUid', isEqualTo: ownerUid).get();
+    final sellerIds = seller.productSellerIds.toSet();
     final unique = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-    for (final doc in docs) {
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final docSellerId = '${data['sellerid'] ?? ''}'.trim();
+      // One account can own more than one store; keep this store's channels.
+      if (sellerIds.isNotEmpty &&
+          docSellerId.isNotEmpty &&
+          !sellerIds.contains(docSellerId)) {
+        continue;
+      }
       unique[doc.id] = doc;
     }
 
@@ -105,7 +107,9 @@ class SellerPaymentMethodService {
     required PaymentChannel channel,
     required bool isCreate,
   }) {
+    final ownerUid = _sessionService.currentUser?.uid ?? '';
     return {
+      'ownerUid': ownerUid,
       'paymentMethodId': channel.id,
       'sellerid': seller.productSellerId,
       'sellerFirestoreDocId': seller.firestoreDocId,

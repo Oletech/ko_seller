@@ -44,13 +44,17 @@ dependencies:
   firebase_auth: ^5.2.0
   cloud_firestore: ^5.4.0
   firebase_storage: ^12.2.0
+  firebase_messaging: ^15.1.0
+  flutter_local_notifications: ^17.2.4
   image_picker: ^1.0.7
   image_cropper: ^11.0.0
   sqflite: ^2.3.3+1
+  cloud_functions: ^5.6.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  firebase_core_platform_interface: ^5.4.2
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

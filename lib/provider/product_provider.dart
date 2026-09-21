@@ -120,7 +120,7 @@ class ProductProvider extends ChangeNotifier {
       _products.add(saved);
       await _persist();
     } catch (_) {
-      _lastError = 'Could not publish product. Please try again.';
+      _lastError = 'Could not submit product for review. Please try again.';
       rethrow;
     } finally {
       _isSaving = false;
@@ -148,23 +148,37 @@ class ProductProvider extends ChangeNotifier {
   Future<void> setStatus(String productId, ProductStatus status) async {
     final index = _products.indexWhere((element) => element.id == productId);
     if (index == -1) return;
+    final normalizedStatus =
+        status == ProductStatus.published ? ProductStatus.pending : status;
     _products[index] = _products[index].copyWith(
-      status: status,
+      status: normalizedStatus,
       updatedAt: DateTime.now(),
     );
     if (_products[index].id.isNotEmpty) {
-      await _remoteService.setProductStatus(_products[index].id, status);
+      await _remoteService.setProductStatus(
+        _products[index].id,
+        normalizedStatus,
+      );
     }
     await _persist();
     notifyListeners();
   }
 
+  /// Live listings are archived (rules forbid deleting approved products so
+  /// order history keeps resolving); drafts and pending listings are deleted.
   Future<void> removeProduct(String productId) async {
     final removed = findById(productId);
-    _products.removeWhere((element) => element.id == productId);
-    if (removed != null && removed.id.isNotEmpty) {
+    if (removed == null) return;
+
+    if (removed.status == ProductStatus.published) {
+      await setStatus(productId, ProductStatus.archived);
+      return;
+    }
+
+    if (removed.id.isNotEmpty) {
       await _remoteService.removeProduct(removed.id);
     }
+    _products.removeWhere((element) => element.id == productId);
     await _persist();
     notifyListeners();
   }

@@ -17,8 +17,9 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _controller = TextEditingController();
-  PhoneNumber _phoneNumber =
+  final PhoneNumber _initialPhoneNumber =
       PhoneNumber(isoCode: 'TZ', dialCode: '+255', phoneNumber: '');
+  late PhoneNumber _phoneNumber = _initialPhoneNumber;
   bool _sending = false;
 
   @override
@@ -39,25 +40,38 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _sending = true;
     });
-    await auth.requestOtp(formatted);
-    setState(() {
-      _sending = false;
-    });
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: Colors.black87,
-        content: Text(
-          'OTP ya majaribio: ${auth.debugCode}',
-          style: const TextStyle(color: Colors.white),
+    try {
+      await auth.requestOtp(formatted);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: sellerGreen,
+          content: Text(
+            'Tumetuma OTP kwa namba yako.',
+            style: TextStyle(color: Colors.white),
+          ),
         ),
-      ),
-    );
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => VerificationScreen(phoneNumber: formatted),
-      ),
-    );
+      );
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => VerificationScreen(phoneNumber: formatted),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: sellerRed,
+          content: Text('$error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+        });
+      }
+    }
   }
 
   @override
@@ -80,25 +94,61 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 16),
               FadeInDown(
+                delay: const Duration(milliseconds: 100),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: sellerGreen.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text.rich(
+                    TextSpan(
+                      text: 'Kariakoonline',
+                      style: TextStyle(
+                        color: sellerGreen,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
+                      ),
+                      children: const [
+                        TextSpan(
+                          text: ' Seller',
+                          style: TextStyle(
+                            fontFamily: 'Fascinate-Regular',
+                            color: sellerRed,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              FadeInDown(
                 delay: const Duration(milliseconds: 150),
                 child: const Text(
-                  'Ingia kwa OTP',
+                  'Ingia kwa namba ya simu',
                   style: TextStyle(
                     fontFamily: 'Impact',
-                    fontSize: 32,
+                    fontSize: 30,
                     color: sellerGreen,
                   ),
+                  textAlign: TextAlign.center,
                 ),
               ),
               const SizedBox(height: 8),
               FadeInDown(
                 delay: const Duration(milliseconds: 250),
                 child: Text(
-                  'Tunakutumia msimbo wa dakika moja kuthibitisha.\n'
-                  'Kariakoo Online hutumia OTP salama kati ya Bob na Alice.',
+                  'Weka namba yako ya muuzaji ili upokee msimbo wa uthibitisho (OTP).\n'
+                  'Tunatumia uthibitisho huu kulinda akaunti, oda, na malipo ya duka lako.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.grey.shade600,
+                    fontSize: 15,
+                    height: 1.5,
                   ),
                 ),
               ),
@@ -106,22 +156,39 @@ class _LoginScreenState extends State<LoginScreen> {
               FadeInDown(
                 delay: const Duration(milliseconds: 350),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  height: 72,
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.grey.shade300),
                   ),
                   child: InternationalPhoneNumberInput(
                     onInputChanged: (value) => _phoneNumber = value,
+                    initialValue: _initialPhoneNumber,
                     selectorConfig: const SelectorConfig(
                       selectorType: PhoneInputSelectorType.BOTTOM_SHEET,
                     ),
                     textFieldController: _controller,
                     formatInput: false,
+                    selectorTextStyle: const TextStyle(
+                      fontSize: 16,
+                      color: sellerBlack,
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      color: sellerBlack,
+                    ),
                     inputDecoration: const InputDecoration(
                       border: InputBorder.none,
                       hintText: 'Phone Number',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 14),
+                      hintStyle: TextStyle(
+                        fontSize: 16,
+                        height: 1.0,
+                        color: Color(0xFF757575),
+                      ),
                     ),
                   ),
                 ),
@@ -151,7 +218,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
                           )
-                        : const Text('Request OTP'),
+                        : const Text('Tuma Msimbo wa OTP'),
                   ),
                 ),
               )

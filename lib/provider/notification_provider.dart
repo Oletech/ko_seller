@@ -2,19 +2,27 @@ import 'package:flutter/material.dart';
 
 import '../model/app_notification.dart';
 import '../services/local_storage_service.dart';
+import '../services/push_notification_service.dart';
 
 class NotificationProvider extends ChangeNotifier {
-  NotificationProvider({required LocalStorageService storage})
-      : _storage = storage {
+  NotificationProvider({
+    required LocalStorageService storage,
+    required PushNotificationService pushNotificationService,
+  })  : _storage = storage,
+        _pushNotificationService = pushNotificationService {
     _loadNotifications();
+    _initializePushNotifications();
   }
 
   final LocalStorageService _storage;
+  final PushNotificationService _pushNotificationService;
   final List<AppNotification> _notifications = [];
+  AppNotification? _pendingNavigation;
 
   List<AppNotification> get notifications => List.unmodifiable(_notifications);
   int get unreadCount =>
       _notifications.where((notification) => !notification.read).length;
+  AppNotification? get pendingNavigation => _pendingNavigation;
 
   void _loadNotifications() {
     final stored = _storage.readNotifications();
@@ -45,9 +53,19 @@ class NotificationProvider extends ChangeNotifier {
   }
 
   Future<void> push(AppNotification notification) async {
+    if (_notifications.any((element) => element.id == notification.id)) {
+      return;
+    }
     _notifications.insert(0, notification);
     await _persist();
     notifyListeners();
+  }
+
+  Future<void> _initializePushNotifications() async {
+    await _pushNotificationService.initialize(
+      onNotification: push,
+      onNotificationOpened: openNotification,
+    );
   }
 
   Future<void> markAsRead(String notificationId) async {
@@ -55,6 +73,56 @@ class NotificationProvider extends ChangeNotifier {
         _notifications.indexWhere((element) => element.id == notificationId);
     if (index == -1) return;
     _notifications[index] = _notifications[index].copyWith(read: true);
+    await _persist();
+    notifyListeners();
+  }
+
+  Future<void> openNotification(AppNotification notification) async {
+    _pendingNavigation = notification;
+    final index =
+        _notifications.indexWhere((element) => element.id == notification.id);
+    if (index != -1 && !_notifications[index].read) {
+      _notifications[index] = _notifications[index].copyWith(read: true);
+      await _persist();
+    }
+    notifyListeners();
+  }
+
+  AppNotification? consumePendingNavigation() {
+    final pending = _pendingNavigation;
+    _pendingNavigation = null;
+    return pending;
+  }
+
+  bool hasUnreadForOrder({
+    required String orderId,
+    required String orderDocumentId,
+  }) {
+    return _notifications.any(
+      (notification) =>
+          !notification.read &&
+          ((orderId.isNotEmpty && notification.orderId == orderId) ||
+              (orderDocumentId.isNotEmpty &&
+                  notification.orderDocumentId == orderDocumentId)),
+    );
+  }
+
+  Future<void> markOrderNotificationsAsRead({
+    required String orderId,
+    required String orderDocumentId,
+  }) async {
+    var changed = false;
+    for (var i = 0; i < _notifications.length; i++) {
+      final matchesOrder =
+          (orderId.isNotEmpty && _notifications[i].orderId == orderId) ||
+              (orderDocumentId.isNotEmpty &&
+                  _notifications[i].orderDocumentId == orderDocumentId);
+      if (matchesOrder && !_notifications[i].read) {
+        _notifications[i] = _notifications[i].copyWith(read: true);
+        changed = true;
+      }
+    }
+    if (!changed) return;
     await _persist();
     notifyListeners();
   }

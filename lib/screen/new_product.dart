@@ -23,11 +23,14 @@ class _NewProductScreenState extends State<NewProductScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _categoryController = TextEditingController(text: 'General');
-  final _priceController = TextEditingController();
+  final _retailPriceController = TextEditingController();
+  final _wholesalePriceController = TextEditingController();
+  final _wholesaleMinQtyController = TextEditingController(text: '6');
   final _stockController = TextEditingController();
   final _descriptionController = TextEditingController();
   bool _allowNegotiation = false;
-  bool _listImmediately = false;
+  bool _availableForRetail = true;
+  bool _availableForWholesale = false;
 
   final ImagePicker _picker = ImagePicker();
   final List<String> _imagePaths = [];
@@ -52,7 +55,9 @@ class _NewProductScreenState extends State<NewProductScreen> {
   void dispose() {
     _titleController.dispose();
     _categoryController.dispose();
-    _priceController.dispose();
+    _retailPriceController.dispose();
+    _wholesalePriceController.dispose();
+    _wholesaleMinQtyController.dispose();
     _stockController.dispose();
     _descriptionController.dispose();
     super.dispose();
@@ -119,7 +124,8 @@ class _NewProductScreenState extends State<NewProductScreen> {
               images: _imagePaths,
               coverIndex: _coverIndex,
               title: _titleController.text,
-              price: _priceController.text,
+              pricingLabel: _previewPricingLabel(),
+              modeLabel: _previewModeLabel(),
               category: _categoryController.text,
               description: _descriptionController.text,
               allowNegotiation: _allowNegotiation,
@@ -138,13 +144,62 @@ class _NewProductScreenState extends State<NewProductScreen> {
               label: 'Category / Collection',
             ),
             const SizedBox(height: 12),
-            _buildTextField(
-              controller: _priceController,
-              label: 'Price (TZS)',
-              keyboardType: TextInputType.number,
-              validator: (value) =>
-                  value == null || value.isEmpty ? 'Required' : null,
+            const Text(
+              'Selling mode',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              title: const Text('Available for retail'),
+              subtitle: const Text('Buyers can order single units'),
+              value: _availableForRetail,
+              onChanged: (value) => setState(() => _availableForRetail = value),
+            ),
+            if (_availableForRetail) ...[
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _retailPriceController,
+                label: 'Retail price (TZS)',
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (!_availableForRetail) return null;
+                  return value == null || value.isEmpty ? 'Required' : null;
+                },
+              ),
+            ],
+            const SizedBox(height: 12),
+            SwitchListTile(
+              title: const Text('Available for wholesale'),
+              subtitle: const Text('Buyers can order in bulk'),
+              value: _availableForWholesale,
+              onChanged: (value) =>
+                  setState(() => _availableForWholesale = value),
+            ),
+            if (_availableForWholesale) ...[
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _wholesalePriceController,
+                label: 'Wholesale price per unit (TZS)',
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (!_availableForWholesale) return null;
+                  return value == null || value.isEmpty ? 'Required' : null;
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildTextField(
+                controller: _wholesaleMinQtyController,
+                label: 'Minimum wholesale quantity',
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (!_availableForWholesale) return null;
+                  if (value == null || value.isEmpty) return 'Required';
+                  final qty = int.tryParse(value) ?? 0;
+                  if (qty < 2) return 'Use 2 or more';
+                  return null;
+                },
+              ),
+            ],
             const SizedBox(height: 12),
             _buildTextField(
               controller: _stockController,
@@ -161,11 +216,45 @@ class _NewProductScreenState extends State<NewProductScreen> {
               maxLines: 5,
             ),
             const SizedBox(height: 12),
-            SwitchListTile(
-              title: const Text('Publish immediately'),
-              subtitle: const Text('Turn this on to post directly to marketplace'),
-              value: _listImmediately,
-              onChanged: (value) => setState(() => _listImmediately = value),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF6F8F8),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: sellerGreen.withValues(alpha: 0.14)),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.verified_outlined,
+                    color: sellerGreen,
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Marketplace review required',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Every new product is submitted for moderation before it appears to buyers.',
+                          style: TextStyle(
+                            color: sellerGray,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             SwitchListTile(
@@ -185,6 +274,7 @@ class _NewProductScreenState extends State<NewProductScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
+                  flex: 2,
                   child: ElevatedButton(
                     onPressed: _isSaving ? null : _saveProduct,
                     style: ElevatedButton.styleFrom(
@@ -197,7 +287,7 @@ class _NewProductScreenState extends State<NewProductScreen> {
                             width: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Share Product'),
+                        : const Text('Submit for Review'),
                   ),
                 ),
               ],
@@ -336,6 +426,12 @@ class _NewProductScreenState extends State<NewProductScreen> {
 
   void _previewProduct() {
     if (!_formKey.currentState!.validate()) return;
+    final pricingError = _validatePricing();
+    if (pricingError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(pricingError)));
+      return;
+    }
     final product = _buildProduct();
     showDialog(
       context: context,
@@ -352,7 +448,8 @@ class _NewProductScreenState extends State<NewProductScreen> {
             const SizedBox(height: 8),
             Text(product.description),
             const SizedBox(height: 8),
-            Text('Price: ${product.price.toStringAsFixed(0)} TZS'),
+            Text('Pricing: ${_previewPricingLabel()}'),
+            Text('Mode: ${_previewModeLabel()}'),
             Text('Stock: ${product.stock}'),
           ],
         ),
@@ -374,6 +471,12 @@ class _NewProductScreenState extends State<NewProductScreen> {
       return;
     }
     if (!_formKey.currentState!.validate()) return;
+    final pricingError = _validatePricing();
+    if (pricingError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(pricingError)));
+      return;
+    }
     final product = _buildProduct();
     setState(() => _isSaving = true);
     try {
@@ -381,34 +484,109 @@ class _NewProductScreenState extends State<NewProductScreen> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(
+            content: Text(error.toString().replaceFirst('Exception: ', ''))),
       );
       setState(() => _isSaving = false);
       return;
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Product posted to marketplace.')),
+      const SnackBar(
+          content: Text('Product submitted for marketplace review.')),
     );
     Navigator.of(context).pop();
   }
 
   ProductItem _buildProduct() {
+    final retailPrice = double.tryParse(_retailPriceController.text) ?? 0;
+    final wholesalePrice =
+        double.tryParse(_wholesalePriceController.text) ?? 0;
+    final wholesaleMinQty =
+        int.tryParse(_wholesaleMinQtyController.text) ?? 1;
+    final purchaseMode = _availableForWholesale && !_availableForRetail
+        ? 'wholesale'
+        : 'retail';
+    final unitPrice = _availableForRetail
+        ? retailPrice
+        : (_availableForWholesale ? wholesalePrice : 0.0);
     return ProductItem(
       id: '',
       sku: '',
       title: _titleController.text,
       category: _categoryController.text,
       description: _descriptionController.text,
-      price: double.tryParse(_priceController.text) ?? 0,
+      price: unitPrice,
+      purchaseMode: purchaseMode,
+      unitPrice: unitPrice,
+      availableForRetail: _availableForRetail,
+      availableForWholesale: _availableForWholesale,
+      retailPrice: retailPrice,
+      wholesalePrice: wholesalePrice,
+      wholesaleMinQty: wholesaleMinQty,
       stock: int.tryParse(_stockController.text) ?? 0,
       media: List<String>.from(_imagePaths),
       allowNegotiation: _allowNegotiation,
-      status: _listImmediately ? ProductStatus.published : ProductStatus.draft,
+      status: ProductStatus.pending,
       metrics: const ProductMetrics(),
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
+  }
+
+  String? _validatePricing() {
+    if (!_availableForRetail && !_availableForWholesale) {
+      return 'Enable retail or wholesale before submitting.';
+    }
+
+    if (_availableForRetail &&
+        (double.tryParse(_retailPriceController.text) ?? 0) <= 0) {
+      return 'Enter a valid retail price.';
+    }
+
+    if (_availableForWholesale &&
+        (double.tryParse(_wholesalePriceController.text) ?? 0) <= 0) {
+      return 'Enter a valid wholesale price.';
+    }
+
+    if (_availableForWholesale &&
+        (int.tryParse(_wholesaleMinQtyController.text) ?? 0) < 2) {
+      return 'Wholesale minimum quantity must be 2 or more.';
+    }
+
+    return null;
+  }
+
+  String _previewPricingLabel() {
+    final retailPrice = double.tryParse(_retailPriceController.text) ?? 0;
+    final wholesalePrice =
+        double.tryParse(_wholesalePriceController.text) ?? 0;
+
+    if (_availableForRetail &&
+        _availableForWholesale &&
+        retailPrice > 0 &&
+        wholesalePrice > 0) {
+      return 'Retail TZS ${retailPrice.toStringAsFixed(0)} • Wholesale TZS ${wholesalePrice.toStringAsFixed(0)}';
+    }
+    if (_availableForRetail && retailPrice > 0) {
+      return 'Retail TZS ${retailPrice.toStringAsFixed(0)}';
+    }
+    if (_availableForWholesale && wholesalePrice > 0) {
+      return 'Wholesale TZS ${wholesalePrice.toStringAsFixed(0)}';
+    }
+    return 'Set selling price';
+  }
+
+  String _previewModeLabel() {
+    if (_availableForRetail && _availableForWholesale) {
+      final qty = int.tryParse(_wholesaleMinQtyController.text) ?? 1;
+      return 'Retail + Wholesale from $qty units';
+    }
+    if (_availableForWholesale) {
+      final qty = int.tryParse(_wholesaleMinQtyController.text) ?? 1;
+      return 'Wholesale only from $qty units';
+    }
+    return 'Retail only';
   }
 }
 
@@ -417,7 +595,8 @@ class _InstagramPreview extends StatelessWidget {
     required this.images,
     required this.coverIndex,
     required this.title,
-    required this.price,
+    required this.pricingLabel,
+    required this.modeLabel,
     required this.category,
     required this.description,
     required this.allowNegotiation,
@@ -427,7 +606,8 @@ class _InstagramPreview extends StatelessWidget {
   final List<String> images;
   final int coverIndex;
   final String title;
-  final String price;
+  final String pricingLabel;
+  final String modeLabel;
   final String category;
   final String description;
   final bool allowNegotiation;
@@ -436,7 +616,7 @@ class _InstagramPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final resolvedTitle = title.isEmpty ? 'Fresh Kariakoo drop' : title.trim();
-    final resolvedPrice = price.isEmpty ? 'Set price' : 'TZS $price';
+    final resolvedPrice = pricingLabel.trim().isEmpty ? 'Set price' : pricingLabel;
     final resolvedCategory =
         category.isEmpty ? 'Category' : '#${category.replaceAll(' ', '')}';
     final hasImage = images.isNotEmpty;
@@ -565,6 +745,25 @@ class _InstagramPreview extends StatelessWidget {
                           style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white12,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            modeLabel,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),

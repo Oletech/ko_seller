@@ -6,6 +6,8 @@ class DefaultFirebaseOptions {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
+      case TargetPlatform.iOS:
+        return ios;
       default:
         return android;
     }
@@ -18,5 +20,15 @@ class DefaultFirebaseOptions {
     projectId: 'kariakoo-babb8',
     storageBucket: 'kariakoo-babb8.appspot.com',
     databaseURL: 'https://kariakoo-babb8.firebaseio.com',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyCs1Y4RfP_0bDK_S9S3AW2SpYN9sb0v04M',
+    appId: '1:853459286281:ios:9d0d19f7e7d1c2e4cb3bd8',
+    messagingSenderId: '853459286281',
+    projectId: 'kariakoo-babb8',
+    storageBucket: 'kariakoo-babb8.appspot.com',
+    databaseURL: 'https://kariakoo-babb8.firebaseio.com',
+    iosBundleId: 'tz.co.oletech.kariakoonlineseller',
   );
 }

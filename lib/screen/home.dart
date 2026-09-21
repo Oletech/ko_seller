@@ -8,21 +8,25 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../model/app_notification.dart';
 import '../model/order_item.dart';
 import '../model/payment_channel.dart';
 import '../model/seller_profile.dart';
 import '../model/product_item.dart';
 import '../model/sales_record.dart';
+import '../model/seller_payout.dart';
 import '../provider/auth_provider.dart';
 import '../provider/notification_provider.dart';
 import '../provider/order_provider.dart';
 import '../provider/product_provider.dart';
 import '../services/firebase_session_service.dart';
 import '../services/firebase_storage_upload_exception.dart';
+import '../services/seller_payout_service.dart';
 import '../utils/style.dart';
 import '../utils/utils.dart';
 import 'login.dart';
 import 'new_product.dart';
+import 'order_chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/home';
@@ -34,6 +38,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  NotificationProvider? _notificationProvider;
 
   final List<Widget> _pages = const [
     _DashboardView(),
@@ -46,6 +51,89 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _selectedIndex = index;
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final notifications = context.read<NotificationProvider>();
+    if (!identical(_notificationProvider, notifications)) {
+      _notificationProvider?.removeListener(_handlePendingNotification);
+      _notificationProvider = notifications;
+      _notificationProvider?.addListener(_handlePendingNotification);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handlePendingNotification();
+    });
+  }
+
+  @override
+  void dispose() {
+    _notificationProvider?.removeListener(_handlePendingNotification);
+    super.dispose();
+  }
+
+  void _handlePendingNotification() {
+    if (!mounted || _notificationProvider == null) return;
+    final pending = _notificationProvider!.pendingNavigation;
+    if (pending == null) return;
+
+    final orderProvider = context.read<OrderProvider>();
+    final order = _findNotificationOrder(orderProvider, pending);
+    final hasOrderTarget =
+        pending.orderId.isNotEmpty || pending.orderDocumentId.isNotEmpty;
+    if (hasOrderTarget && order == null && orderProvider.isLoading) {
+      return;
+    }
+
+    final consumed = _notificationProvider!.consumePendingNavigation();
+    if (consumed == null) return;
+    final targetTab = consumed.targetTab ?? _resolveNotificationTab(consumed);
+    if (targetTab != null && targetTab != _selectedIndex) {
+      setState(() {
+        _selectedIndex = targetTab;
+      });
+    }
+
+    if (order != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showOrderDetailSheet(context, order);
+      });
+    }
+  }
+
+  SellerOrder? _findNotificationOrder(
+    OrderProvider orderProvider,
+    AppNotification notification,
+  ) {
+    if (notification.orderId.isNotEmpty) {
+      final byId = orderProvider.findById(notification.orderId);
+      if (byId != null) return byId;
+    }
+    if (notification.orderDocumentId.isNotEmpty) {
+      for (final order in orderProvider.orders) {
+        if (order.orderDocumentId == notification.orderDocumentId) {
+          return order;
+        }
+      }
+    }
+    return null;
+  }
+
+  int? _resolveNotificationTab(AppNotification notification) {
+    if (notification.targetTab != null) {
+      return notification.targetTab;
+    }
+    final action = notification.action.toLowerCase();
+    if (action.contains('shipping') || action.contains('delivery')) {
+      return 2;
+    }
+    if (notification.orderId.isNotEmpty ||
+        notification.orderDocumentId.isNotEmpty) {
+      return 1;
+    }
+    return null;
   }
 
   @override
@@ -85,6 +173,25 @@ class _SellerBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final orders = context.watch<OrderProvider>().orders;
+    final orderBadgeCount = orders
+        .where(
+          (order) =>
+              order.status == OrderStatus.awaitingPayment ||
+              order.status == OrderStatus.escrowFunded ||
+              order.status == OrderStatus.preparingShipment ||
+              order.status == OrderStatus.disputed,
+        )
+        .length;
+    final shippingBadgeCount = orders
+        .where(
+          (order) =>
+              order.status == OrderStatus.escrowFunded ||
+              order.status == OrderStatus.preparingShipment ||
+              order.status == OrderStatus.outForDelivery,
+        )
+        .length;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       decoration: const BoxDecoration(
@@ -110,6 +217,8 @@ class _SellerBottomBar extends StatelessWidget {
             icon: Icons.receipt_long_outlined,
             label: 'Order',
             active: selectedIndex == 1,
+            badgeCount: orderBadgeCount,
+            badgeColor: sellerRed,
             onTap: () => onItemSelected(1),
           ),
           Expanded(
@@ -140,6 +249,8 @@ class _SellerBottomBar extends StatelessWidget {
             icon: Icons.local_shipping_outlined,
             label: 'Shipping',
             active: selectedIndex == 2,
+            badgeCount: shippingBadgeCount,
+            badgeColor: const Color(0xffE9A62B),
             onTap: () => onItemSelected(2),
           ),
           _NavItem(
@@ -160,23 +271,61 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
+    this.badgeCount = 0,
+    this.badgeColor = sellerRed,
   });
 
   final IconData icon;
   final String label;
   final bool active;
   final VoidCallback onTap;
+  final int badgeCount;
+  final Color badgeColor;
 
   @override
   Widget build(BuildContext context) {
     final color = active ? sellerRed : Colors.grey.shade500;
+    final displayBadge = badgeCount > 99 ? '99+' : '$badgeCount';
     return Expanded(
       child: InkWell(
         onTap: onTap,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(icon, color: color),
+                if (badgeCount > 0)
+                  Positioned(
+                    right: -12,
+                    top: -8,
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: badgeColor,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        displayBadge,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(
               label,
@@ -202,6 +351,20 @@ class _DashboardView extends StatelessWidget {
     final notifications = context.watch<NotificationProvider>();
     final products = context.watch<ProductProvider>();
     final salesRecords = orders.weeklySalesRecords;
+    final sellerOrders = orders.orders;
+    final awaitingPaymentCount = sellerOrders
+        .where((order) => order.status == OrderStatus.awaitingPayment)
+        .length;
+    final readyToShipCount = sellerOrders
+        .where(
+          (order) =>
+              order.status == OrderStatus.escrowFunded ||
+              order.status == OrderStatus.preparingShipment,
+        )
+        .length;
+    final awaitingReleaseCount = sellerOrders
+        .where((order) => order.status == OrderStatus.delivered)
+        .length;
 
     return RefreshIndicator(
       onRefresh: () => context.read<OrderProvider>().refreshOrders(),
@@ -232,12 +395,21 @@ class _DashboardView extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
+          _EscrowFlowSnapshot(
+            awaitingPaymentCount: awaitingPaymentCount,
+            readyToShipCount: readyToShipCount,
+            awaitingReleaseCount: awaitingReleaseCount,
+          ),
+          const SizedBox(height: 16),
           _SalesChartCard(records: salesRecords),
           const SizedBox(height: 16),
           _ActionList(
             onAddProduct: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const NewProductScreen()),
             ),
+            onPaymentsTap: () => _showPaymentsFlowSheet(context),
+            onReturnsTap: () => _showReturnsSheet(context),
+            onCommunicationsTap: () => _showCommunicationsSheet(context),
           ),
           const SizedBox(height: 16),
           _ProductHighlightGrid(products: products.products),
@@ -272,6 +444,29 @@ class _DashboardHeader extends StatelessWidget {
                   color: sellerGreen,
                 ),
               ),
+              // Text.rich(
+              //   TextSpan(
+              //     text: 'Kariakoonline',
+              //     style: TextStyle(
+              //       color: sellerGreen,
+              //       fontWeight: FontWeight.w700,
+              //       fontSize: 24,
+              //       letterSpacing: 0.2,
+              //     ),
+              //     children: [
+              //       TextSpan(
+              //         text: ' Seller',
+              //         style: TextStyle(
+              //           fontFamily: 'Fascinate-Regular',
+              //           color: sellerRed,
+              //           fontSize: 24,
+              //           fontWeight: FontWeight.w700,
+              //           letterSpacing: 0.2,
+              //         ),
+              //       ),
+              //     ],
+              //   ),
+              // ),
             ],
           ),
         ),
@@ -331,6 +526,114 @@ class _SummaryCard extends StatelessWidget {
             style: TextStyle(color: Colors.grey.shade600),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EscrowFlowSnapshot extends StatelessWidget {
+  const _EscrowFlowSnapshot({
+    required this.awaitingPaymentCount,
+    required this.readyToShipCount,
+    required this.awaitingReleaseCount,
+  });
+
+  final int awaitingPaymentCount;
+  final int readyToShipCount;
+  final int awaitingReleaseCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: Theme.of(context).copyWith(
+        dividerColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: sellerGreen,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: ExpansionTile(
+            tilePadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            iconColor: Colors.white,
+            collapsedIconColor: Colors.white,
+            title: const Row(
+              children: [
+                Icon(Icons.verified_user_outlined, color: Colors.white),
+                SizedBox(width: 8),
+                Text(
+                  'Escrow Flow',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+            children: [
+              Text(
+                'Buyer has 15 minutes to pay. Once escrow is funded, the seller must pack, hand over, and confirm delivery before payout release.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _FlowMetricChip(
+                    value: awaitingPaymentCount,
+                    label: 'waiting payment',
+                  ),
+                  _FlowMetricChip(
+                    value: readyToShipCount,
+                    label: 'seller action',
+                  ),
+                  _FlowMetricChip(
+                    value: awaitingReleaseCount,
+                    label: 'awaiting release',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FlowMetricChip extends StatelessWidget {
+  const _FlowMetricChip({required this.value, required this.label});
+
+  final int value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        '$value $label',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -422,12 +725,10 @@ class _SalesChartCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             Container(
-                              margin:
-                                  const EdgeInsets.symmetric(horizontal: 4),
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
                               height: maxRevenue == 0
                                   ? 0
-                                  : (record.revenue / maxRevenue)
-                                          .clamp(0, 1) *
+                                  : (record.revenue / maxRevenue).clamp(0, 1) *
                                       110,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
@@ -467,9 +768,17 @@ class _SalesChartCard extends StatelessWidget {
 }
 
 class _ActionList extends StatelessWidget {
-  const _ActionList({required this.onAddProduct});
+  const _ActionList({
+    required this.onAddProduct,
+    required this.onPaymentsTap,
+    required this.onReturnsTap,
+    required this.onCommunicationsTap,
+  });
 
   final VoidCallback onAddProduct;
+  final VoidCallback onPaymentsTap;
+  final VoidCallback onReturnsTap;
+  final VoidCallback onCommunicationsTap;
 
   @override
   Widget build(BuildContext context) {
@@ -488,22 +797,1063 @@ class _ActionList extends StatelessWidget {
           ),
           _ActionTile(
             title: 'Manage returns',
-            subtitle: 'Track and approve buyer returns',
+            subtitle: 'Review disputes, cancellations, and return-risk orders',
             icon: Icons.autorenew_outlined,
-            onTap: () {},
+            onTap: onReturnsTap,
           ),
           _ActionTile(
             title: 'Payments',
-            subtitle: 'Escrow releases and payouts',
+            subtitle: '15-min payment window, escrow, payout release',
             icon: Icons.payments_outlined,
-            onTap: () {},
+            onTap: onPaymentsTap,
           ),
           _ActionTile(
             title: 'Communications',
-            subtitle: 'Messages & campaigns',
+            subtitle: 'Unread alerts, payment reminders, and delivery updates',
             icon: Icons.message_outlined,
-            onTap: () {},
+            onTap: onCommunicationsTap,
             showDivider: false,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+void _showPaymentsFlowSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const _PaymentsFlowSheet(),
+  );
+}
+
+void _showReturnsSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const _ReturnsCenterSheet(),
+  );
+}
+
+void _showCommunicationsSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const _CommunicationsSheet(),
+  );
+}
+
+class _ReturnsCenterSheet extends StatelessWidget {
+  const _ReturnsCenterSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final orderProvider = context.watch<OrderProvider>();
+    final allOrders = orderProvider.orders;
+    final reviewQueue = allOrders
+        .where(
+          (order) =>
+              order.status == OrderStatus.disputed ||
+              order.status == OrderStatus.cancelled ||
+              order.status == OrderStatus.delivered,
+        )
+        .toList();
+    final disputedOrders = reviewQueue
+        .where((order) => order.status == OrderStatus.disputed)
+        .toList();
+    final cancelledOrders = reviewQueue
+        .where((order) => order.status == OrderStatus.cancelled)
+        .toList();
+    final deliveredOrders = reviewQueue
+        .where((order) => order.status == OrderStatus.delivered)
+        .toList();
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.86,
+      builder: (_, controller) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+          child: ListView(
+            controller: controller,
+            children: [
+              _SheetHeader(
+                title: 'Returns Center',
+                subtitle:
+                    'Review orders that may need refund, return, or manual follow-up.',
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _ReturnsMetricCard(
+                    label: 'Disputes',
+                    value: disputedOrders.length.toString(),
+                    color: sellerRed,
+                    icon: Icons.report_problem_outlined,
+                  ),
+                  _ReturnsMetricCard(
+                    label: 'Cancelled',
+                    value: cancelledOrders.length.toString(),
+                    color: Colors.orange,
+                    icon: Icons.cancel_outlined,
+                  ),
+                  _ReturnsMetricCard(
+                    label: 'Delivered',
+                    value: deliveredOrders.length.toString(),
+                    color: Colors.indigo,
+                    icon: Icons.inventory_2_outlined,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const _SellerInfoBanner(
+                icon: Icons.assignment_return_outlined,
+                color: sellerGreen,
+                text:
+                    'Use this queue to check delivered orders, track disputes, and respond fast when a buyer requests return or refund evidence.',
+              ),
+              const SizedBox(height: 18),
+              if (reviewQueue.isEmpty)
+                _EmptyStateCard(
+                  text:
+                      'No return or dispute cases need seller review right now.',
+                )
+              else
+                ...reviewQueue.map(
+                  (order) => _ReturnsOrderCard(order: order),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CommunicationsSheet extends StatelessWidget {
+  const _CommunicationsSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifications = context.watch<NotificationProvider>();
+    final orderProvider = context.watch<OrderProvider>();
+    final unread = notifications.unreadCount;
+    final awaitingPayment = orderProvider.orders
+        .where((order) => order.status == OrderStatus.awaitingPayment)
+        .length;
+    final shipping = orderProvider.orders
+        .where(
+          (order) =>
+              order.status == OrderStatus.escrowFunded ||
+              order.status == OrderStatus.preparingShipment ||
+              order.status == OrderStatus.outForDelivery,
+        )
+        .length;
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.88,
+      builder: (_, controller) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+          child: ListView(
+            controller: controller,
+            children: [
+              _SheetHeader(
+                title: 'Communications',
+                subtitle:
+                    'Stay on top of seller alerts and use quick templates for common buyer updates.',
+                trailing: TextButton(
+                  onPressed: notifications.markAllAsRead,
+                  child: const Text('Mark all read'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _ReturnsMetricCard(
+                    label: 'Unread alerts',
+                    value: unread.toString(),
+                    color: sellerGreen,
+                    icon: Icons.notifications_active_outlined,
+                  ),
+                  _ReturnsMetricCard(
+                    label: 'Awaiting payment',
+                    value: awaitingPayment.toString(),
+                    color: Colors.orange,
+                    icon: Icons.schedule_outlined,
+                  ),
+                  _ReturnsMetricCard(
+                    label: 'Shipping updates',
+                    value: shipping.toString(),
+                    color: Colors.blueGrey,
+                    icon: Icons.local_shipping_outlined,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Quick templates',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 10),
+              const _MessageTemplateCard(
+                title: 'Payment reminder',
+                body:
+                    'Hello, your Kariakoo order is waiting for payment. Please complete payment within 15 minutes so we can prepare your order.',
+              ),
+              const _MessageTemplateCard(
+                title: 'Delivery update',
+                body:
+                    'Hello, your order has been packed and handed over for delivery. We will update you again when delivery is completed.',
+              ),
+              const _MessageTemplateCard(
+                title: 'Issue follow-up',
+                body:
+                    'Hello, we are reviewing your order issue. Please keep your payment and delivery proof available while support checks the case.',
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Recent alerts',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 10),
+              if (notifications.notifications.isEmpty)
+                _EmptyStateCard(
+                  text: 'No seller alerts yet.',
+                )
+              else
+                ...notifications.notifications.take(8).map(
+                      (notification) =>
+                          _NotificationInboxCard(notification: notification),
+                    ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SheetHeader extends StatelessWidget {
+  const _SheetHeader({
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                style: TextStyle(color: Colors.grey.shade700, height: 1.35),
+              ),
+            ],
+          ),
+        ),
+        if (trailing != null) trailing!,
+        if (trailing == null)
+          IconButton(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close),
+          ),
+      ],
+    );
+  }
+}
+
+class _SellerInfoBanner extends StatelessWidget {
+  const _SellerInfoBanner({
+    required this.icon,
+    required this.color,
+    required this.text,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(color: Colors.grey.shade800, height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReturnsMetricCard extends StatelessWidget {
+  const _ReturnsMetricCard({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 104),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReturnsOrderCard extends StatelessWidget {
+  const _ReturnsOrderCard({required this.order});
+
+  final SellerOrder order;
+
+  Future<void> _handleAction(
+    BuildContext context, {
+    required String title,
+    required String hint,
+    required Future<bool> Function(String note) onSubmit,
+    required String successMessage,
+  }) async {
+    final note = await _showReturnActionSheet(
+      context,
+      title: title,
+      hint: hint,
+    );
+    if (note == null || note.trim().isEmpty || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final success = await onSubmit(note.trim());
+    if (!context.mounted) return;
+    if (success) {
+      messenger.showSnackBar(SnackBar(content: Text(successMessage)));
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Action failed. Try again.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = switch (order.status) {
+      OrderStatus.disputed => sellerRed,
+      OrderStatus.cancelled => Colors.orange,
+      OrderStatus.delivered => Colors.indigo,
+      _ => Colors.grey,
+    };
+    final statusText = switch (order.status) {
+      OrderStatus.disputed => 'Dispute / return review',
+      OrderStatus.cancelled => 'Cancelled order',
+      OrderStatus.delivered => 'Delivered - monitor return risk',
+      _ => orderStatusLabel(order.status),
+    };
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  order.product.title,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              _BadgeChip(
+                label: statusText,
+                color: statusColor,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${order.orderNumber} • ${order.buyer.name}',
+            style: TextStyle(color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            order.status == OrderStatus.disputed
+                ? 'Check payment proof, delivery proof, and buyer complaint details before approving any refund.'
+                : order.status == OrderStatus.cancelled
+                    ? 'Confirm no handoff was made and keep evidence if payment had already been claimed.'
+                    : 'Keep delivery proof available until the buyer confirms or the marketplace clears the return window.',
+            style: TextStyle(color: Colors.grey.shade700, height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              if (order.status == OrderStatus.delivered)
+                _ReturnActionButton(
+                  label: 'Start review',
+                  icon: Icons.assignment_return_outlined,
+                  filled: true,
+                  onTap: () => _handleAction(
+                    context,
+                    title: 'Start Return Review',
+                    hint:
+                        'Add the reason or evidence that requires return/review.',
+                    onSubmit: (note) => context
+                        .read<OrderProvider>()
+                        .openDispute(order.id, note),
+                    successMessage: 'Return review started.',
+                  ),
+                ),
+              if (order.status == OrderStatus.disputed)
+                _ReturnActionButton(
+                  label: 'Approve refund',
+                  icon: Icons.check_circle_outline,
+                  filled: true,
+                  onTap: () => _handleAction(
+                    context,
+                    title: 'Approve Refund',
+                    hint: 'Add refund note or evidence for the payout team.',
+                    onSubmit: (note) => context
+                        .read<OrderProvider>()
+                        .approveRefund(order.id, note),
+                    successMessage: 'Refund approval saved.',
+                  ),
+                ),
+              if (order.status == OrderStatus.disputed)
+                _ReturnActionButton(
+                  label: 'Reject return',
+                  icon: Icons.close_rounded,
+                  onTap: () => _handleAction(
+                    context,
+                    title: 'Reject Return',
+                    hint:
+                        'Explain why the return is rejected and what evidence supports it.',
+                    onSubmit: (note) => context
+                        .read<OrderProvider>()
+                        .rejectReturn(order.id, note),
+                    successMessage: 'Return rejection saved.',
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReturnActionButton extends StatelessWidget {
+  const _ReturnActionButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.filled = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = filled
+        ? ElevatedButton.styleFrom(
+            backgroundColor: sellerRed,
+            foregroundColor: Colors.white,
+          )
+        : OutlinedButton.styleFrom(
+            foregroundColor: sellerRed,
+          );
+
+    final child = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 6),
+        Text(label),
+      ],
+    );
+
+    return filled
+        ? ElevatedButton(onPressed: onTap, style: style, child: child)
+        : OutlinedButton(onPressed: onTap, style: style, child: child);
+  }
+}
+
+Future<String?> _showReturnActionSheet(
+  BuildContext context, {
+  required String title,
+  required String hint,
+}) {
+  final controller = TextEditingController();
+
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) {
+      return Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              minLines: 4,
+              maxLines: 6,
+              decoration: InputDecoration(
+                hintText: hint,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () =>
+                        Navigator.of(sheetContext).pop(controller.text),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: sellerRed,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Save'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _MessageTemplateCard extends StatelessWidget {
+  const _MessageTemplateCard({
+    required this.title,
+    required this.body,
+  });
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: body));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('$title copied.')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.copy_all_outlined, size: 18),
+                label: const Text('Copy'),
+              ),
+            ],
+          ),
+          Text(
+            body,
+            style: TextStyle(color: Colors.grey.shade700, height: 1.35),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotificationInboxCard extends StatelessWidget {
+  const _NotificationInboxCard({required this.notification});
+
+  final AppNotification notification;
+
+  @override
+  Widget build(BuildContext context) {
+    final notifications = context.read<NotificationProvider>();
+    final color = switch (notification.type) {
+      NotificationType.payment => sellerGreen,
+      NotificationType.order => sellerRed,
+      NotificationType.review => Colors.indigo,
+      NotificationType.report => Colors.orange,
+      NotificationType.system => Colors.blueGrey,
+    };
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => notifications.openNotification(notification),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color:
+              notification.read ? Colors.white : color.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: notification.read
+                ? Colors.grey.shade200
+                : color.withValues(alpha: 0.16),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    notification.title,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text(
+                  formatDateTime(notification.createdAt),
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              notification.message,
+              style: TextStyle(color: Colors.grey.shade700, height: 1.35),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyStateCard extends StatelessWidget {
+  const _EmptyStateCard({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(color: Colors.grey.shade700),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+class _PaymentsFlowSheet extends StatefulWidget {
+  const _PaymentsFlowSheet();
+
+  @override
+  State<_PaymentsFlowSheet> createState() => _PaymentsFlowSheetState();
+}
+
+class _PaymentsFlowSheetState extends State<_PaymentsFlowSheet> {
+  late final Stream<List<SellerPayout>> _payouts;
+
+  @override
+  void initState() {
+    super.initState();
+    _payouts = SellerPayoutService(
+      sessionService: FirebaseSessionService(),
+    ).watchPayouts();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.85,
+      builder: (_, controller) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: ListView(
+          controller: controller,
+          children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Escrow releases and payouts',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Seller payments follow the marketplace order flow. Do not ship unpaid orders.',
+            style: TextStyle(height: 1.35),
+          ),
+          const SizedBox(height: 18),
+          StreamBuilder<List<SellerPayout>>(
+            stream: _payouts,
+            builder: (context, snapshot) => _SettlementsSection(
+              payouts: snapshot.data ?? const <SellerPayout>[],
+              isLoading:
+                  snapshot.connectionState == ConnectionState.waiting,
+              hasError: snapshot.hasError,
+            ),
+          ),
+          const SizedBox(height: 18),
+          const _FlowStep(
+            icon: Icons.schedule_outlined,
+            title: '1. Buyer payment window',
+            description:
+                'The buyer has 15 minutes after placing the order to complete payment using the selected payment method.',
+          ),
+          const _FlowStep(
+            icon: Icons.account_balance_wallet_outlined,
+            title: '2. Funds held in escrow',
+            description:
+                'After payment is confirmed, the order becomes seller action. Funds stay protected until delivery progress is confirmed.',
+          ),
+          const _FlowStep(
+            icon: Icons.local_shipping_outlined,
+            title: '3. Seller delivery responsibility',
+            description:
+                'The seller must pack the order, hand it to pickup/delivery, and mark delivery steps truthfully in the seller app.',
+          ),
+          const _FlowStep(
+            icon: Icons.payments_outlined,
+            title: '4. Payout release',
+            description:
+                'Payout is ready only after delivery is confirmed or the marketplace releases escrow.',
+          ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Live view of the marketplace settlement ledger for this seller.
+class _SettlementsSection extends StatelessWidget {
+  const _SettlementsSection({
+    required this.payouts,
+    required this.isLoading,
+    required this.hasError,
+  });
+
+  final List<SellerPayout> payouts;
+  final bool isLoading;
+  final bool hasError;
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = payouts.where((payout) => !payout.isSettled);
+    final pendingTotal =
+        pending.fold<double>(0, (sum, payout) => sum + payout.netAmount);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Your settlements',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          pending.isEmpty
+              ? 'Released orders show up here with what the marketplace owes you.'
+              : 'TZS ${formatCompact(pendingTotal)} on the way from '
+                  '${pending.length} released order'
+                  '${pending.length == 1 ? '' : 's'}.',
+          style: TextStyle(color: Colors.grey.shade600, height: 1.35),
+        ),
+        const SizedBox(height: 12),
+        if (isLoading && payouts.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (hasError)
+          Text(
+            'Could not load your settlements. Pull down to retry.',
+            style: TextStyle(color: Colors.red.shade700),
+          )
+        else if (payouts.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Text(
+              'No payouts yet. Escrow is released once the buyer confirms '
+              'delivery or the release window passes.',
+              style: TextStyle(height: 1.35),
+            ),
+          )
+        else
+          ...payouts.map((payout) => _SettlementTile(payout: payout)),
+      ],
+    );
+  }
+}
+
+class _SettlementTile extends StatelessWidget {
+  const _SettlementTile({required this.payout});
+
+  final SellerPayout payout;
+
+  @override
+  Widget build(BuildContext context) {
+    final settled = payout.isSettled;
+    final needsAccount =
+        payout.status == SellerPayoutStatus.missingPayoutMethod;
+    final accent = settled
+        ? sellerGreen
+        : needsAccount
+            ? sellerRed
+            : Colors.orange.shade700;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Order ${payout.orderNumber}',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text(
+                '${payout.currency} ${formatCompact(payout.netAmount)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: accent,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            payout.commissionAmount > 0
+                ? 'Sale ${payout.currency} ${formatCompact(payout.grossAmount)} '
+                    '· marketplace fee ${formatCompact(payout.commissionAmount)}'
+                : 'Sale ${payout.currency} ${formatCompact(payout.grossAmount)} '
+                    '· no marketplace fee',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+          if (payout.destinationLabel.isNotEmpty)
+            Text(
+              'To ${payout.destinationLabel}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
+          if (needsAccount)
+            Text(
+              'Add a payout account so the marketplace can send this.',
+              style: TextStyle(color: sellerRed, fontSize: 13),
+            ),
+          if (settled && payout.settlementReference.isNotEmpty)
+            Text(
+              'Reference ${payout.settlementReference}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              payout.status.label,
+              style: TextStyle(
+                color: accent,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FlowStep extends StatelessWidget {
+  const _FlowStep({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: sellerGreen.withValues(alpha: 0.1),
+            child: Icon(icon, color: sellerGreen, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  description,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -640,10 +1990,18 @@ class _ProductHighlightGrid extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              formatCurrency(product.price),
+                              _productPriceHeadline(product),
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: sellerGreen,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _productModeSummary(product),
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 12,
                               ),
                             ),
                           ],
@@ -670,7 +2028,6 @@ Color _productStatusColor(ProductStatus status) {
     case ProductStatus.archived:
       return Colors.grey;
     case ProductStatus.draft:
-    default:
       return Colors.blueGrey;
   }
 }
@@ -678,15 +2035,45 @@ Color _productStatusColor(ProductStatus status) {
 String _productStatusLabel(ProductStatus status) {
   switch (status) {
     case ProductStatus.pending:
-      return 'Pending';
+      return 'Under review';
     case ProductStatus.published:
       return 'Live';
     case ProductStatus.archived:
       return 'Paused';
     case ProductStatus.draft:
-    default:
       return 'Draft';
   }
+}
+
+String _productPriceHeadline(ProductItem product) {
+  if (product.availableForRetail &&
+      product.availableForWholesale &&
+      product.retailPrice > 0 &&
+      product.wholesalePrice > 0) {
+    return '${formatCurrency(product.retailPrice)} / ${formatCurrency(product.wholesalePrice)}';
+  }
+  return formatCurrency(product.displayPrice);
+}
+
+String _productPriceRangeLabel(ProductItem product) {
+  if (product.availableForRetail &&
+      product.availableForWholesale &&
+      product.lowestPrice > 0 &&
+      product.highestPrice > 0 &&
+      product.lowestPrice != product.highestPrice) {
+    return 'From ${formatCurrency(product.lowestPrice)} to ${formatCurrency(product.highestPrice)}';
+  }
+  return 'From ${formatCurrency(product.displayPrice)}';
+}
+
+String _productModeSummary(ProductItem product) {
+  if (product.availableForRetail && product.availableForWholesale) {
+    return 'Retail + Wholesale • Min wholesale ${product.wholesaleMinQty}';
+  }
+  if (product.availableForWholesale) {
+    return 'Wholesale only • Min ${product.wholesaleMinQty} units';
+  }
+  return 'Retail only';
 }
 
 class _OrderDetailSheet extends StatelessWidget {
@@ -697,25 +2084,43 @@ class _OrderDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.read<OrderProvider>();
+    final sellerProfile = context.read<AuthProvider>().profile;
     final primaryActionLabel = switch (order.status) {
-      OrderStatus.preparingShipment => 'Mark collected',
+      OrderStatus.escrowFunded => 'Mark packed',
+      OrderStatus.preparingShipment => 'Mark in transit',
       OrderStatus.outForDelivery => 'Mark delivered',
-      OrderStatus.delivered => 'Delivered',
-      _ => 'Awaiting payment',
+      OrderStatus.delivered => 'Awaiting release',
+      OrderStatus.awaitingPayment => 'Waiting for buyer',
+      _ => 'No action',
     };
+    Future<void> runAndClose(Future<bool> Function() action) async {
+      final ok = await action();
+      if (!context.mounted) return;
+      if (ok) {
+        Navigator.of(context).pop();
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            provider.lastError ?? 'Could not update this order right now.',
+          ),
+        ),
+      );
+    }
+
     final primaryAction = switch (order.status) {
-      OrderStatus.preparingShipment => () async {
-          await provider.markOrderCollected(order.id);
-          if (context.mounted) Navigator.of(context).pop();
-        },
-      OrderStatus.outForDelivery => () async {
-          await provider.submitProofOfDelivery(order.id);
-          if (context.mounted) Navigator.of(context).pop();
-        },
+      OrderStatus.escrowFunded => () =>
+          runAndClose(() => provider.markPacked(order.id)),
+      OrderStatus.preparingShipment => () =>
+          runAndClose(() => provider.markInTransit(order.id)),
+      OrderStatus.outForDelivery => () =>
+          runAndClose(() => provider.markDelivered(order.id)),
       _ => null,
     };
     final steps = [
       OrderStatus.awaitingPayment,
+      OrderStatus.escrowFunded,
       OrderStatus.preparingShipment,
       OrderStatus.outForDelivery,
       OrderStatus.delivered,
@@ -775,7 +2180,7 @@ class _OrderDetailSheet extends StatelessWidget {
                 children: steps.asMap().entries.map((entry) {
                   final index = entry.key;
                   final status = entry.value;
-                  final reached = order.status.index >= status.index;
+                  final reached = _hasReachedOrderStep(order.status, status);
                   return Expanded(
                     child: Column(
                       children: [
@@ -809,6 +2214,8 @@ class _OrderDetailSheet extends StatelessWidget {
                   );
                 }).toList(),
               ),
+              const SizedBox(height: 16),
+              _OrderPaymentFlowNotice(order: order),
               const SizedBox(height: 16),
               _InfoCard(
                 title: 'Customer details',
@@ -845,9 +2252,35 @@ class _OrderDetailSheet extends StatelessWidget {
                       value: order.isPaid ? 'Paid' : 'Awaiting payment',
                       highlight: true,
                     ),
+                    if (order.isAwaitingBuyerPayment)
+                      _InfoRow(
+                        label: 'Payment window',
+                        value:
+                            '${_paymentWindowText(order)} - deadline ${formatDateTime(order.paymentDeadline)}',
+                        highlight: true,
+                      ),
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
+              if (sellerProfile != null && order.buyer.userId.trim().isNotEmpty)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => SellerOrderChatScreen(
+                            order: order,
+                            seller: sellerProfile,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.message_outlined),
+                    label: const Text('Message buyer'),
+                  ),
+                ),
               const SizedBox(height: 16),
               _InfoCard(
                 title: 'Order detail',
@@ -888,6 +2321,17 @@ class _OrderDetailSheet extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
+              _InfoCard(
+                title: 'Evidence',
+                content: Column(
+                  children: [
+                    _ProofInfoTile(proof: order.paymentProof),
+                    const Divider(),
+                    _ProofInfoTile(proof: order.deliveryProof),
+                  ],
+                ),
+              ),
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -921,12 +2365,15 @@ class _OrderDetailSheet extends StatelessWidget {
     switch (status) {
       case OrderStatus.awaitingPayment:
         return Colors.orange;
+      case OrderStatus.escrowFunded:
       case OrderStatus.preparingShipment:
+        return sellerGreen;
       case OrderStatus.outForDelivery:
         return Colors.blueGrey;
       case OrderStatus.completed:
-      case OrderStatus.delivered:
         return Colors.green;
+      case OrderStatus.delivered:
+        return Colors.indigo;
       default:
         return Colors.grey;
     }
@@ -935,16 +2382,143 @@ class _OrderDetailSheet extends StatelessWidget {
   String _statusText(OrderStatus status) {
     switch (status) {
       case OrderStatus.awaitingPayment:
-        return 'Pending';
+        return 'Waiting payment';
+      case OrderStatus.escrowFunded:
+        return 'Escrow funded';
       case OrderStatus.preparingShipment:
-        return 'Accepted';
+        return 'Preparing shipment';
       case OrderStatus.outForDelivery:
-        return 'Shipped';
+        return 'In transit';
       case OrderStatus.delivered:
-        return 'Delivered';
+        return 'Awaiting release';
+      case OrderStatus.completed:
+        return 'Payout released';
       default:
         return status.name;
     }
+  }
+}
+
+String _paymentWindowText(SellerOrder order) {
+  final remaining = order.paymentTimeRemaining(DateTime.now());
+  if (remaining.inSeconds <= 0) {
+    return 'Payment window expired';
+  }
+
+  var minutes = (remaining.inSeconds / 60).ceil();
+  if (minutes < 1) minutes = 1;
+  if (minutes > SellerOrder.buyerPaymentWindow.inMinutes) {
+    minutes = SellerOrder.buyerPaymentWindow.inMinutes;
+  }
+  return '$minutes min left to pay';
+}
+
+class _OrderPaymentFlowNotice extends StatelessWidget {
+  const _OrderPaymentFlowNotice({required this.order});
+
+  final SellerOrder order;
+
+  @override
+  Widget build(BuildContext context) {
+    final expired = order.isPaymentWindowExpired(DateTime.now());
+    final title = switch (order.status) {
+      OrderStatus.awaitingPayment =>
+        expired ? 'Payment window expired' : 'Waiting for buyer payment',
+      OrderStatus.escrowFunded => 'Escrow funded - seller action pending',
+      OrderStatus.preparingShipment => 'Escrow funded - prepare delivery',
+      OrderStatus.outForDelivery => 'Delivery in progress',
+      OrderStatus.delivered => 'Delivered - awaiting escrow release',
+      OrderStatus.completed => 'Payout released',
+      OrderStatus.disputed => 'Dispute in review',
+      OrderStatus.cancelled => 'Order cancelled',
+    };
+    final description = switch (order.status) {
+      OrderStatus.awaitingPayment => expired
+          ? 'The buyer did not complete payment within 15 minutes. Do not pack or dispatch this order unless the marketplace confirms payment.'
+          : 'The buyer has 15 minutes from order creation to pay. Seller should wait until funds are confirmed in escrow before packing or delivery handoff.',
+      OrderStatus.escrowFunded =>
+        'Payment is confirmed and funds are held in escrow. Seller should start packing and prepare the handoff.',
+      OrderStatus.preparingShipment =>
+        'Payment is held in escrow. Seller is responsible to pack the exact order and hand it to pickup or delivery.',
+      OrderStatus.outForDelivery =>
+        'Keep facilitating delivery and update the order only when the package is genuinely handed over or delivered.',
+      OrderStatus.delivered =>
+        'Delivery is marked complete. Payout remains held until buyer confirmation or marketplace escrow release.',
+      OrderStatus.completed =>
+        'Escrow has been released to the seller payout channel.',
+      OrderStatus.disputed =>
+        'Provide delivery and payment evidence while marketplace support reviews this order.',
+      OrderStatus.cancelled =>
+        'No seller fulfilment is required for this order.',
+    };
+    final color = switch (order.status) {
+      OrderStatus.awaitingPayment => expired ? sellerRed : Colors.orange,
+      OrderStatus.escrowFunded => sellerGreen,
+      OrderStatus.preparingShipment => sellerGreen,
+      OrderStatus.outForDelivery => Colors.blueGrey,
+      OrderStatus.delivered => Colors.indigo,
+      OrderStatus.completed => sellerGreen,
+      OrderStatus.disputed => sellerRed,
+      _ => Colors.grey,
+    };
+    final icon = switch (order.status) {
+      OrderStatus.awaitingPayment => Icons.schedule_outlined,
+      OrderStatus.escrowFunded => Icons.payments_outlined,
+      OrderStatus.preparingShipment => Icons.inventory_2_outlined,
+      OrderStatus.outForDelivery => Icons.local_shipping_outlined,
+      OrderStatus.delivered => Icons.verified_outlined,
+      OrderStatus.completed => Icons.payments_outlined,
+      OrderStatus.disputed => Icons.report_problem_outlined,
+      _ => Icons.info_outline,
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            backgroundColor: color.withValues(alpha: 0.14),
+            child: Icon(icon, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: TextStyle(
+                    color: Colors.grey.shade800,
+                    height: 1.35,
+                  ),
+                ),
+                if (order.isAwaitingBuyerPayment) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _paymentWindowText(order),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1071,6 +2645,7 @@ class _OrdersPageState extends State<OrdersPage> {
       case 2:
         return orders
             .where((o) =>
+                o.status == OrderStatus.escrowFunded ||
                 o.status == OrderStatus.preparingShipment ||
                 o.status == OrderStatus.outForDelivery)
             .toList();
@@ -1171,18 +2746,10 @@ class _OrdersPageState extends State<OrdersPage> {
         ...filtered.map(
           (order) => _OrderCard(
             order: order,
-            onTap: () => _showOrderDetail(context, order),
+            onTap: () => _showOrderDetailSheet(context, order),
           ),
         ),
       ],
-    );
-  }
-
-  void _showOrderDetail(BuildContext context, SellerOrder order) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _OrderDetailSheet(order: order),
     );
   }
 }
@@ -1197,12 +2764,15 @@ class _OrderCard extends StatelessWidget {
     switch (status) {
       case OrderStatus.awaitingPayment:
         return Colors.orange;
+      case OrderStatus.escrowFunded:
+        return sellerGreen;
       case OrderStatus.preparingShipment:
       case OrderStatus.outForDelivery:
         return Colors.blueGrey;
       case OrderStatus.completed:
-      case OrderStatus.delivered:
         return Colors.green;
+      case OrderStatus.delivered:
+        return Colors.indigo;
       case OrderStatus.disputed:
         return sellerRed;
       default:
@@ -1213,14 +2783,17 @@ class _OrderCard extends StatelessWidget {
   String _statusText(OrderStatus status) {
     switch (status) {
       case OrderStatus.awaitingPayment:
-        return 'Pending';
+        return 'Waiting payment';
+      case OrderStatus.escrowFunded:
+        return 'Escrow funded';
       case OrderStatus.preparingShipment:
-        return 'Packing';
+        return 'Preparing shipment';
       case OrderStatus.outForDelivery:
         return 'Shipping';
-      case OrderStatus.completed:
       case OrderStatus.delivered:
-        return 'Completed';
+        return 'Awaiting release';
+      case OrderStatus.completed:
+        return 'Payout released';
       case OrderStatus.disputed:
         return 'Dispute';
       default:
@@ -1301,11 +2874,25 @@ class _OrderCard extends StatelessWidget {
                         label: _statusText(order.status),
                         color: _statusColor(order.status),
                       ),
+                      if (order.isAwaitingBuyerPayment)
+                        _BadgeChip(
+                          label: _paymentWindowText(order),
+                          color: order.isPaymentWindowExpired(DateTime.now())
+                              ? sellerRed
+                              : Colors.orange,
+                          light: true,
+                        ),
                       _BadgeChip(
                         label: order.buyer.name,
                         color: Colors.blueGrey,
                         light: true,
                       ),
+                      if (order.hasUnreadUpdates)
+                        _BadgeChip(
+                          label: 'New update',
+                          color: sellerRed,
+                          light: true,
+                        ),
                       if (order.trackNumber.isNotEmpty)
                         _BadgeChip(
                           label: order.trackNumber,
@@ -1371,6 +2958,7 @@ class ShippingPage extends StatelessWidget {
     final orders = provider.orders;
     final shippingOrders = orders
         .where((order) =>
+            order.status == OrderStatus.escrowFunded ||
             order.status == OrderStatus.preparingShipment ||
             order.status == OrderStatus.outForDelivery ||
             order.status == OrderStatus.delivered)
@@ -1380,6 +2968,8 @@ class ShippingPage extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         const _SectionHeader(title: 'Delivery & Shipping'),
+        const SizedBox(height: 12),
+        const _ShippingResponsibilityBanner(),
         const SizedBox(height: 12),
         if (provider.isLoading)
           const Padding(
@@ -1405,6 +2995,35 @@ class ShippingPage extends StatelessWidget {
   }
 }
 
+class _ShippingResponsibilityBanner extends StatelessWidget {
+  const _ShippingResponsibilityBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: sellerGreen.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: sellerGreen.withValues(alpha: 0.16)),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.local_shipping_outlined, color: sellerGreen),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Only paid escrow orders should be fulfilled. Seller is responsible for packing, handoff, and truthful delivery updates.',
+              style: TextStyle(height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ShippingCard extends StatelessWidget {
   const _ShippingCard({required this.order});
 
@@ -1413,18 +3032,35 @@ class _ShippingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = switch (order.status) {
-      OrderStatus.preparingShipment => 'Mark collected',
+      OrderStatus.escrowFunded => 'Mark packed',
+      OrderStatus.preparingShipment => 'Mark in transit',
       OrderStatus.outForDelivery => 'Mark delivered',
       _ => 'Delivered',
     };
+    Future<void> run(Future<bool> Function() action) async {
+      final ok = await action();
+      if (ok || !context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.read<OrderProvider>().lastError ??
+                'Could not update this order right now.',
+          ),
+        ),
+      );
+    }
+
     final action = switch (order.status) {
+      OrderStatus.escrowFunded => () =>
+          run(() => context.read<OrderProvider>().markPacked(order.id)),
       OrderStatus.preparingShipment => () =>
-          context.read<OrderProvider>().markOrderCollected(order.id),
+          run(() => context.read<OrderProvider>().markInTransit(order.id)),
       OrderStatus.outForDelivery => () =>
-          context.read<OrderProvider>().submitProofOfDelivery(order.id),
+          run(() => context.read<OrderProvider>().markDelivered(order.id)),
       _ => null,
     };
     final steps = [
+      OrderStatus.escrowFunded,
       OrderStatus.preparingShipment,
       OrderStatus.outForDelivery,
       OrderStatus.delivered,
@@ -1441,6 +3077,13 @@ class _ShippingCard extends StatelessWidget {
               order.product.title,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 4),
+            Text(
+              '${order.buyer.name} - ${order.shippingAddress}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: 8),
             Row(
               children: steps
@@ -1450,9 +3093,10 @@ class _ShippingCard extends StatelessWidget {
                         children: [
                           CircleAvatar(
                             radius: 10,
-                            backgroundColor: order.status.index >= status.index
-                                ? sellerGreen
-                                : Colors.grey.shade300,
+                            backgroundColor:
+                                _hasReachedOrderStep(order.status, status)
+                                    ? sellerGreen
+                                    : Colors.grey.shade300,
                             child: const SizedBox(),
                           ),
                           const SizedBox(height: 4),
@@ -1468,6 +3112,17 @@ class _ShippingCard extends StatelessWidget {
                     ),
                   )
                   .toList(),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              order.status == OrderStatus.escrowFunded
+                  ? 'Escrow is funded. Start preparing the package and mark collected only after courier or pickup handoff.'
+                  : order.status == OrderStatus.preparingShipment
+                      ? 'Escrow is funded. Pack the order and mark collected only after courier/pickup handoff.'
+                      : order.status == OrderStatus.outForDelivery
+                          ? 'Keep delivery moving and mark delivered only after the buyer receives the package.'
+                          : 'Delivery is confirmed; payout release depends on buyer or marketplace confirmation.',
+              style: TextStyle(color: Colors.grey.shade700, height: 1.35),
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
@@ -1487,6 +3142,8 @@ class _ShippingCard extends StatelessWidget {
 
   String _statusLabel(OrderStatus status) {
     switch (status) {
+      case OrderStatus.escrowFunded:
+        return 'Escrow';
       case OrderStatus.preparingShipment:
         return 'Packing';
       case OrderStatus.outForDelivery:
@@ -1751,10 +3408,12 @@ class _AccountHeader extends StatelessWidget {
                 ListTile(
                   leading: const CircleAvatar(
                     backgroundColor: Color(0x1A0B7A5F),
-                    child: Icon(Icons.photo_library_outlined, color: sellerGreen),
+                    child:
+                        Icon(Icons.photo_library_outlined, color: sellerGreen),
                   ),
                   title: const Text('Choose from gallery'),
-                  onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(ImageSource.gallery),
                 ),
                 ListTile(
                   leading: const CircleAvatar(
@@ -1762,7 +3421,8 @@ class _AccountHeader extends StatelessWidget {
                     child: Icon(Icons.photo_camera_outlined, color: sellerRed),
                   ),
                   title: const Text('Take a photo'),
-                  onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(ImageSource.camera),
                 ),
               ],
             ),
@@ -1772,7 +3432,8 @@ class _AccountHeader extends StatelessWidget {
     );
   }
 
-  Future<CroppedFile?> _cropLogo(BuildContext context, String sourcePath) async {
+  Future<CroppedFile?> _cropLogo(
+      BuildContext context, String sourcePath) async {
     try {
       return await ImageCropper().cropImage(
         sourcePath: sourcePath,
@@ -1902,7 +3563,7 @@ class _AccountHeader extends StatelessWidget {
                     Row(
                       children: [
                         Expanded(
-                        child: Text(
+                          child: Text(
                             profile != null && profile!.storeName.isNotEmpty
                                 ? profile!.storeName
                                 : 'Kariakoo Seller',
@@ -1914,8 +3575,7 @@ class _AccountHeader extends StatelessWidget {
                         ),
                         IconButton(
                           onPressed: () => _openAccountSheet(context),
-                          icon:
-                              const Icon(Icons.keyboard_arrow_down_rounded),
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded),
                           splashRadius: 20,
                           visualDensity: VisualDensity.compact,
                         ),
@@ -2010,9 +3670,9 @@ class _AccountActions extends StatelessWidget {
           onTap: () => _showContactSheet(context, profile),
         ),
         _QuickActionChip(
-          label: 'Statistics',
-          icon: Icons.bar_chart,
-          onTap: () {},
+          label: 'Settings',
+          icon: Icons.settings_outlined,
+          onTap: () => _openSettings(context, auth, profile),
         ),
         _QuickActionChip(
           label: 'Profile',
@@ -2042,6 +3702,370 @@ class _AccountActions extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       builder: (_) => _ContactSheet(profile: profile),
+    );
+  }
+
+  void _openSettings(
+    BuildContext context,
+    AuthProvider auth,
+    SellerProfile? profile,
+  ) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _SettingsScreen(
+          auth: auth,
+          profile: profile,
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsScreen extends StatelessWidget {
+  const _SettingsScreen({
+    required this.auth,
+    required this.profile,
+  });
+
+  final AuthProvider auth;
+  final SellerProfile? profile;
+
+  void _openEditProfileSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _EditProfileSheet(
+        auth: auth,
+        profile: profile,
+      ),
+    );
+  }
+
+  void _openContactSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => _ContactSheet(profile: profile),
+    );
+  }
+
+  void _openGeneralStatement(
+    BuildContext context,
+    NotificationProvider notifications,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => _GeneralStatementSheet(
+        profile: profile,
+        unreadNotifications: notifications.unreadCount,
+      ),
+    );
+  }
+
+  Future<void> _logout(BuildContext context) async {
+    await auth.logout();
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final notifications = context.watch<NotificationProvider>();
+
+    return Scaffold(
+      backgroundColor: const Color(0xfff5f5f5),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text(
+          'Settings',
+          style: TextStyle(color: sellerBlack, fontWeight: FontWeight.bold),
+        ),
+        iconTheme: const IconThemeData(color: sellerBlack),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: sellerGreen.withValues(alpha: 0.12),
+                  child: Text(
+                    (profile?.displayName.isNotEmpty == true
+                            ? profile!.displayName.characters.first
+                            : 'S')
+                        .toUpperCase(),
+                    style: const TextStyle(
+                      color: sellerGreen,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        profile?.storeName.isNotEmpty == true
+                            ? profile!.storeName
+                            : 'Kariakoo Seller',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        profile?.phoneNumber.isNotEmpty == true
+                            ? profile!.phoneNumber
+                            : 'Seller account',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              children: [
+                _SettingsTile(
+                  icon: Icons.person_outline,
+                  iconColor: const Color(0xffE9A62B),
+                  title: 'Seller Account',
+                  subtitle: 'Profile and business details',
+                  onTap: () => _openEditProfileSheet(context),
+                ),
+                _SettingsTile(
+                  icon: Icons.description_outlined,
+                  iconColor: const Color(0xff6E8EFB),
+                  title: 'General Statement',
+                  subtitle: 'Store activity and setup overview',
+                  onTap: () => _openGeneralStatement(context, notifications),
+                ),
+                _SettingsTile(
+                  icon: Icons.notifications_none_rounded,
+                  iconColor: const Color(0xffF08A8A),
+                  title: 'Notifications',
+                  subtitle: notifications.unreadCount == 0
+                      ? 'No unread alerts'
+                      : '${notifications.unreadCount} unread alerts',
+                  onTap: notifications.markAllAsRead,
+                ),
+                _SettingsTile(
+                  icon: Icons.language_outlined,
+                  iconColor: const Color(0xff6BC7B8),
+                  title: 'Language',
+                  subtitle: 'English',
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Language settings will be added soon.'),
+                      ),
+                    );
+                  },
+                ),
+                _SettingsTile(
+                  icon: Icons.help_outline,
+                  iconColor: const Color(0xffF2B84B),
+                  title: 'Seller Help Center',
+                  subtitle: 'Support and contact channels',
+                  onTap: () => _openContactSheet(context),
+                ),
+                _SettingsTile(
+                  icon: Icons.info_outline,
+                  iconColor: const Color(0xff84A4FF),
+                  title: 'About',
+                  subtitle: 'Kariakoo Online Seller App',
+                  onTap: () {
+                    showAboutDialog(
+                      context: context,
+                      applicationName: 'Kariakoo Seller',
+                      applicationVersion: '1.0.0',
+                      applicationLegalese:
+                          'Seller operations app for Kariakoo Online Marketplace.',
+                    );
+                  },
+                ),
+                _SettingsTile(
+                  icon: Icons.logout_rounded,
+                  iconColor: sellerRed,
+                  title: 'Log Out',
+                  subtitle: 'Sign out from this device',
+                  isDestructive: true,
+                  onTap: () => _logout(context),
+                  showDivider: false,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsTile extends StatelessWidget {
+  const _SettingsTile({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.isDestructive = false,
+    this.showDivider = true,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool isDestructive;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ListTile(
+          leading: CircleAvatar(
+            radius: 18,
+            backgroundColor: iconColor.withValues(alpha: 0.12),
+            child: Icon(icon, color: iconColor, size: 18),
+          ),
+          title: Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: isDestructive ? sellerRed : sellerBlack,
+            ),
+          ),
+          subtitle: Text(subtitle),
+          trailing: Icon(
+            Icons.chevron_right,
+            color: Colors.grey.shade500,
+          ),
+          onTap: onTap,
+        ),
+        if (showDivider)
+          Divider(
+            height: 1,
+            indent: 68,
+            endIndent: 16,
+            color: Colors.grey.shade100,
+          ),
+      ],
+    );
+  }
+}
+
+class _GeneralStatementSheet extends StatelessWidget {
+  const _GeneralStatementSheet({
+    required this.profile,
+    required this.unreadNotifications,
+  });
+
+  final SellerProfile? profile;
+  final int unreadNotifications;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'General Statement',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          const SizedBox(height: 14),
+          _StatementRow(
+            label: 'Store',
+            value: profile?.storeName.isNotEmpty == true
+                ? profile!.storeName
+                : 'Kariakoo Seller',
+          ),
+          _StatementRow(
+            label: 'Business type',
+            value: profile?.businessType.isNotEmpty == true
+                ? profile!.businessType
+                : 'General',
+          ),
+          _StatementRow(
+            label: 'Followers',
+            value: '${profile?.followerCount ?? 0}',
+          ),
+          _StatementRow(
+            label: 'Notifications',
+            value: unreadNotifications == 0
+                ? 'No unread alerts'
+                : '$unreadNotifications unread alerts',
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: sellerRed,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Close'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatementRow extends StatelessWidget {
+  const _StatementRow({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2445,21 +4469,47 @@ class _ListingManager extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final orderProvider = context.watch<OrderProvider>();
     final filtered = products.take(10).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Your listings',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            hintText: 'Search listing by SKU',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
-          ),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Your listings',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+            Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => _showListingFilterSheet(context),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.tune_rounded, size: 18, color: sellerBlack),
+                      SizedBox(width: 6),
+                      Text(
+                        'Filter',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         GridView.builder(
@@ -2474,6 +4524,10 @@ class _ListingManager extends StatelessWidget {
           itemCount: filtered.length,
           itemBuilder: (_, index) {
             final product = filtered[index];
+            final reservedUnits =
+                orderProvider.reservedUnitsForProduct(product);
+            final availableUnits =
+                orderProvider.availableUnitsForProduct(product);
             final source = product.media.isNotEmpty
                 ? product.media.first
                 : 'https://via.placeholder.com/80';
@@ -2514,15 +4568,31 @@ class _ListingManager extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'From ${formatCurrency(product.price)}',
+                            _productPriceRangeLabel(product),
                             style: TextStyle(color: Colors.grey.shade600),
                           ),
                           const SizedBox(height: 8),
+                          Text(
+                            _productModeSummary(product),
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
                           Text(
                             'Status: ${_productStatusLabel(product.status)}',
                             style: TextStyle(
                               color: _productStatusColor(product.status),
                               fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Stock ${product.stock} • Reserved $reservedUnits • Available $availableUnits',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
                             ),
                           ),
                         ],
@@ -2535,6 +4605,110 @@ class _ListingManager extends StatelessWidget {
           },
         ),
       ],
+    );
+  }
+}
+
+void _showListingFilterSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const _ListingFilterSheet(),
+  );
+}
+
+class _ListingFilterSheet extends StatelessWidget {
+  const _ListingFilterSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Filter listings',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const SizedBox(height: 16),
+            const _FilterOptionTile(
+              icon: Icons.check_circle_outline,
+              title: 'Published',
+              subtitle: 'Show active seller listings',
+            ),
+            const _FilterOptionTile(
+              icon: Icons.edit_note_outlined,
+              title: 'Draft',
+              subtitle: 'Show unfinished listings',
+            ),
+            const _FilterOptionTile(
+              icon: Icons.pause_circle_outline,
+              title: 'Paused',
+              subtitle: 'Show archived or hidden listings',
+            ),
+            const _FilterOptionTile(
+              icon: Icons.pending_actions_outlined,
+              title: 'Under review',
+              subtitle: 'Show listings waiting for review',
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: sellerRed,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Close'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterOptionTile extends StatelessWidget {
+  const _FilterOptionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: sellerGreen.withValues(alpha: 0.12),
+        child: Icon(icon, size: 18, color: sellerGreen),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(subtitle),
     );
   }
 }
@@ -2626,8 +4800,37 @@ class _PaymentDetailSheet extends StatelessWidget {
                       borderRadius: BorderRadius.circular(30),
                     ),
                   ),
-                  onPressed: () {},
-                  child: const Text('Make Primary'),
+                  onPressed: channel.isPrimary
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final navigator = Navigator.of(context);
+                          try {
+                            await context
+                                .read<AuthProvider>()
+                                .setPrimaryChannel(channel.id);
+                            navigator.pop();
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '${channel.displayName} is now your payout '
+                                  'account.',
+                                ),
+                              ),
+                            );
+                          } catch (error) {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Could not set the payout account: $error',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                  child: Text(
+                    channel.isPrimary ? 'Primary account' : 'Make Primary',
+                  ),
                 ),
               ),
             ],
@@ -2809,6 +5012,9 @@ class _ProductPreviewSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.read<ProductProvider>();
+    final orderProvider = context.watch<OrderProvider>();
+    final reservedUnits = orderProvider.reservedUnitsForProduct(product);
+    final availableUnits = orderProvider.availableUnitsForProduct(product);
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.85,
@@ -2858,6 +5064,9 @@ class _ProductPreviewSheet extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 12,
                 children: [
+                  _InsightChip(label: 'Stock', value: product.stock),
+                  _InsightChip(label: 'Reserved', value: reservedUnits),
+                  _InsightChip(label: 'Available', value: availableUnits),
                   _InsightChip(label: 'Views', value: product.metrics.views),
                   _InsightChip(label: 'Likes', value: product.metrics.likes),
                   _InsightChip(
@@ -2868,12 +5077,28 @@ class _ProductPreviewSheet extends StatelessWidget {
               ..._buildStatusActions(context, provider),
               const SizedBox(height: 8),
               TextButton(
-                onPressed: () {
-                  provider.removeProduct(product.id);
-                  Navigator.of(context).pop();
+                onPressed: () async {
+                  final navigator = Navigator.of(context);
+                  final messenger = ScaffoldMessenger.of(context);
+                  try {
+                    await provider.removeProduct(product.id);
+                    navigator.pop();
+                  } catch (_) {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Could not remove this listing. Try again.',
+                        ),
+                      ),
+                    );
+                  }
                 },
                 style: TextButton.styleFrom(foregroundColor: sellerRed),
-                child: const Text('Remove listing'),
+                child: Text(
+                  product.status == ProductStatus.published
+                      ? 'Archive listing'
+                      : 'Remove listing',
+                ),
               ),
             ],
           ),
@@ -2897,13 +5122,19 @@ class _ProductPreviewSheet extends StatelessWidget {
         ];
       case ProductStatus.pending:
         return [
-          ElevatedButton(
-            onPressed: () async {
-              await provider.setStatus(product.id, ProductStatus.published);
-              if (context.mounted) Navigator.of(context).pop();
-            },
-            child: const Text('Approve & publish'),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF7E8),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Text(
+              'This listing is waiting for marketplace moderation. Only the marketplace team can approve and release it to buyers.',
+              style: TextStyle(height: 1.5),
+            ),
           ),
+          const SizedBox(height: 12),
           OutlinedButton(
             onPressed: () async {
               await provider.setStatus(product.id, ProductStatus.draft);
@@ -2916,10 +5147,10 @@ class _ProductPreviewSheet extends StatelessWidget {
         return [
           ElevatedButton(
             onPressed: () async {
-              await provider.setStatus(product.id, ProductStatus.pending);
+              await provider.setStatus(product.id, ProductStatus.archived);
               if (context.mounted) Navigator.of(context).pop();
             },
-            child: const Text('Pause & review'),
+            child: const Text('Pause listing'),
           ),
         ];
       case ProductStatus.archived:
@@ -2929,10 +5160,104 @@ class _ProductPreviewSheet extends StatelessWidget {
               await provider.setStatus(product.id, ProductStatus.pending);
               if (context.mounted) Navigator.of(context).pop();
             },
-            child: const Text('Relist product'),
+            child: const Text('Resubmit for review'),
           ),
         ];
     }
+  }
+}
+
+void _showOrderDetailSheet(BuildContext context, SellerOrder order) {
+  context.read<OrderProvider>().markUpdatesAsRead(order.id);
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => _OrderDetailSheet(order: order),
+  );
+}
+
+bool _hasReachedOrderStep(OrderStatus current, OrderStatus step) {
+  switch (step) {
+    case OrderStatus.awaitingPayment:
+      return true;
+    case OrderStatus.escrowFunded:
+      return current != OrderStatus.awaitingPayment &&
+          current != OrderStatus.cancelled;
+    case OrderStatus.preparingShipment:
+      return current == OrderStatus.preparingShipment ||
+          current == OrderStatus.outForDelivery ||
+          current == OrderStatus.delivered ||
+          current == OrderStatus.completed ||
+          current == OrderStatus.disputed;
+    case OrderStatus.outForDelivery:
+      return current == OrderStatus.outForDelivery ||
+          current == OrderStatus.delivered ||
+          current == OrderStatus.completed ||
+          current == OrderStatus.disputed;
+    case OrderStatus.delivered:
+      return current == OrderStatus.delivered ||
+          current == OrderStatus.completed;
+    case OrderStatus.completed:
+      return current == OrderStatus.completed;
+    case OrderStatus.disputed:
+      return current == OrderStatus.disputed;
+    case OrderStatus.cancelled:
+      return current == OrderStatus.cancelled;
+  }
+}
+
+class _ProofInfoTile extends StatelessWidget {
+  const _ProofInfoTile({required this.proof});
+
+  final OrderProof proof;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (proof.status) {
+      OrderProofStatus.verified => sellerGreen,
+      OrderProofStatus.submitted => Colors.orange,
+      OrderProofStatus.rejected => sellerRed,
+      OrderProofStatus.missing => Colors.grey,
+    };
+
+    final details = [
+      if (proof.reference.isNotEmpty) 'Ref: ${proof.reference}',
+      if (proof.note.isNotEmpty) proof.note,
+      if (proof.submittedAt != null)
+        'Submitted ${formatDateTime(proof.submittedAt!)}',
+      if (proof.verifiedAt != null)
+        'Verified ${formatDateTime(proof.verifiedAt!)}',
+    ].join(' • ');
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: color.withValues(alpha: 0.12),
+        child: Icon(
+          proof.label == 'Payment proof'
+              ? Icons.receipt_long_outlined
+              : Icons.verified_user_outlined,
+          color: color,
+          size: 18,
+        ),
+      ),
+      title: Text(
+        proof.label,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        details.isEmpty ? 'No proof has been attached yet.' : details,
+        style: TextStyle(color: Colors.grey.shade600),
+      ),
+      trailing: Text(
+        orderProofStatusLabel(proof.status),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
   }
 }
 

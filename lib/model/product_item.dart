@@ -12,6 +12,13 @@ class ProductItem extends Equatable {
   final String category;
   final String description;
   final double price;
+  final String purchaseMode;
+  final double unitPrice;
+  final bool availableForRetail;
+  final bool availableForWholesale;
+  final double retailPrice;
+  final double wholesalePrice;
+  final int wholesaleMinQty;
   final int stock;
   final List<String> media;
   final bool allowNegotiation;
@@ -27,6 +34,13 @@ class ProductItem extends Equatable {
     required this.category,
     required this.description,
     required this.price,
+    required this.purchaseMode,
+    required this.unitPrice,
+    required this.availableForRetail,
+    required this.availableForWholesale,
+    required this.retailPrice,
+    required this.wholesalePrice,
+    required this.wholesaleMinQty,
     required this.stock,
     required this.media,
     required this.allowNegotiation,
@@ -44,6 +58,13 @@ class ProductItem extends Equatable {
       category: 'General',
       description: '',
       price: 0,
+      purchaseMode: 'retail',
+      unitPrice: 0,
+      availableForRetail: true,
+      availableForWholesale: false,
+      retailPrice: 0,
+      wholesalePrice: 0,
+      wholesaleMinQty: 1,
       stock: 0,
       media: const [],
       allowNegotiation: false,
@@ -56,7 +77,48 @@ class ProductItem extends Equatable {
 
   bool get isLowStock => stock <= 5;
 
-  double get inventoryValue => price * stock;
+  double get inventoryValue => displayPrice * stock;
+
+  String get normalizedPurchaseMode {
+    if (purchaseMode.trim().toLowerCase() == 'wholesale' &&
+        availableForWholesale) {
+      return 'wholesale';
+    }
+    if (availableForRetail) return 'retail';
+    if (availableForWholesale) return 'wholesale';
+    return 'retail';
+  }
+
+  double get displayPrice {
+    if (availableForRetail && retailPrice > 0) return retailPrice;
+    if (availableForWholesale && wholesalePrice > 0) return wholesalePrice;
+    if (unitPrice > 0) return unitPrice;
+    return price;
+  }
+
+  double get lowestPrice {
+    final values = <double>[
+      if (availableForRetail && retailPrice > 0) retailPrice,
+      if (availableForWholesale && wholesalePrice > 0) wholesalePrice,
+      if (unitPrice > 0) unitPrice,
+      if (price > 0) price,
+    ];
+    if (values.isEmpty) return 0;
+    values.sort();
+    return values.first;
+  }
+
+  double get highestPrice {
+    final values = <double>[
+      if (availableForRetail && retailPrice > 0) retailPrice,
+      if (availableForWholesale && wholesalePrice > 0) wholesalePrice,
+      if (unitPrice > 0) unitPrice,
+      if (price > 0) price,
+    ];
+    if (values.isEmpty) return 0;
+    values.sort();
+    return values.last;
+  }
 
   ProductItem copyWith({
     String? id,
@@ -65,6 +127,13 @@ class ProductItem extends Equatable {
     String? category,
     String? description,
     double? price,
+    String? purchaseMode,
+    double? unitPrice,
+    bool? availableForRetail,
+    bool? availableForWholesale,
+    double? retailPrice,
+    double? wholesalePrice,
+    int? wholesaleMinQty,
     int? stock,
     List<String>? media,
     bool? allowNegotiation,
@@ -80,6 +149,14 @@ class ProductItem extends Equatable {
       category: category ?? this.category,
       description: description ?? this.description,
       price: price ?? this.price,
+      purchaseMode: purchaseMode ?? this.purchaseMode,
+      unitPrice: unitPrice ?? this.unitPrice,
+      availableForRetail: availableForRetail ?? this.availableForRetail,
+      availableForWholesale:
+          availableForWholesale ?? this.availableForWholesale,
+      retailPrice: retailPrice ?? this.retailPrice,
+      wholesalePrice: wholesalePrice ?? this.wholesalePrice,
+      wholesaleMinQty: wholesaleMinQty ?? this.wholesaleMinQty,
       stock: stock ?? this.stock,
       media: media ?? this.media,
       allowNegotiation: allowNegotiation ?? this.allowNegotiation,
@@ -98,6 +175,13 @@ class ProductItem extends Equatable {
       'category': category,
       'description': description,
       'price': price,
+      'purchaseMode': purchaseMode,
+      'unitPrice': unitPrice,
+      'availableForRetail': availableForRetail,
+      'availableForWholesale': availableForWholesale,
+      'retailPrice': retailPrice,
+      'wholesalePrice': wholesalePrice,
+      'wholesaleMinQty': wholesaleMinQty,
       'stock': stock,
       'media': media,
       'allowNegotiation': allowNegotiation,
@@ -116,6 +200,19 @@ class ProductItem extends Equatable {
       category: json['category'] as String? ?? 'General',
       description: json['description'] as String? ?? '',
       price: (json['price'] as num?)?.toDouble() ?? 0,
+      purchaseMode: json['purchaseMode'] as String? ?? 'retail',
+      unitPrice:
+          (json['unitPrice'] as num?)?.toDouble() ??
+          (json['price'] as num?)?.toDouble() ??
+          0,
+      availableForRetail: json['availableForRetail'] as bool? ?? true,
+      availableForWholesale: json['availableForWholesale'] as bool? ?? false,
+      retailPrice:
+          (json['retailPrice'] as num?)?.toDouble() ??
+          (json['price'] as num?)?.toDouble() ??
+          0,
+      wholesalePrice: (json['wholesalePrice'] as num?)?.toDouble() ?? 0,
+      wholesaleMinQty: json['wholesaleMinQty'] as int? ?? 1,
       stock: json['stock'] as int? ?? 0,
       media: (json['media'] as List<dynamic>? ?? []).map((e) => '$e').toList(),
       allowNegotiation: json['allowNegotiation'] as bool? ?? false,
@@ -141,6 +238,13 @@ class ProductItem extends Equatable {
         category,
         description,
         price,
+        purchaseMode,
+        unitPrice,
+        availableForRetail,
+        availableForWholesale,
+        retailPrice,
+        wholesalePrice,
+        wholesaleMinQty,
         stock,
         media,
         allowNegotiation,
