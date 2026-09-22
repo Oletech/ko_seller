@@ -213,6 +213,26 @@ flutter build appbundle --release    # Play
 flutter build ipa --release          # App Store
 ```
 
+### Verify the bundle before uploading
+
+```bash
+./tool/check_16kb.sh
+```
+
+Google Play requires every app targeting Android 15+ to support 16 KB memory
+page sizes, and refuses updates that do not from 1 February 2027. The check
+confirms that every 64-bit native library is aligned to at least 16 KB and
+that `extractNativeLibs` is false. It passes because `ndkVersion` is r28;
+dropping back to an NDK older than r27 would silently produce 4 KB-aligned
+libraries that Play rejects.
+
+Also worth eyeballing each time:
+
+```bash
+keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab \
+  | grep -E 'Owner|SHA1'        # must not say CN=Android Debug
+```
+
 ### Store requirements this app satisfies, and where
 
 | Requirement | Where it lives |
@@ -220,6 +240,7 @@ flutter build ipa --release          # App Store
 | In-app account deletion (Apple 5.1.1(v), Play) | Settings → Delete Account, backed by `deleteSellerAccount` |
 | Privacy policy reachable in-app | Settings → Privacy Policy, `kPrivacyPolicyUrl` in `utils/style.dart` |
 | Play target API level | `targetSdkVersion 36` |
+| 16 KB memory page sizes | NDK r28 + `extractNativeLibs=false`; verify with `tool/check_16kb.sh` |
 | Edge-to-edge (enforced, no opt-out at 36) | bottom bar pads by `viewPaddingOf().bottom`, all 14 modal sheets use `useSafeArea`, dark system bar icons set in `main.dart` |
 | iOS camera and photo permission strings | `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` in `Info.plist` |
 | Export compliance | `ITSAppUsesNonExemptEncryption = false` |
