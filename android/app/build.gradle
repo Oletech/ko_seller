@@ -35,6 +35,32 @@ if (keystorePropertiesFile.exists()) {
     }
 }
 
+// Resolve the keystore once, here, so that a missing file or a typo in
+// key.properties is visible at configuration time instead of silently
+// producing a debug-signed bundle that Play then rejects on upload.
+def releaseKeystoreFile = null
+def keystoreWarning = 'android/key.properties was not found.'
+if (keystorePropertiesFile.exists()) {
+    def declaredPath = keystoreProperties['storeFile']
+    if (!declaredPath) {
+        keystoreWarning = 'android/key.properties has no storeFile entry.'
+    } else {
+        // Relative paths resolve against android/app/, where this file lives.
+        def candidate = file(declaredPath)
+        def missingFields = ['storePassword', 'keyAlias', 'keyPassword']
+            .findAll { !keystoreProperties[it] }
+        if (!candidate.exists()) {
+            keystoreWarning = 'Keystore not found at ' + candidate.absolutePath + '.'
+        } else if (missingFields) {
+            keystoreWarning = 'android/key.properties is missing: ' +
+                missingFields.join(', ') + '.'
+        } else {
+            releaseKeystoreFile = candidate
+        }
+    }
+}
+def hasReleaseKeystore = releaseKeystoreFile != null
+
 android {
     namespace "tz.co.oletech.kariakoonlineseller"
     compileSdkVersion 36
@@ -71,9 +97,9 @@ android {
     }
 
     signingConfigs {
-        release {
-            if (keystoreProperties.containsKey('storeFile')) {
-                storeFile file(keystoreProperties['storeFile'])
+        if (hasReleaseKeystore) {
+            release {
+                storeFile releaseKeystoreFile
                 storePassword keystoreProperties['storePassword']
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
@@ -83,12 +109,26 @@ android {
 
     buildTypes {
         release {
-            // Falls back to the debug key only for local `flutter run --release`.
-            // Play rejects debug-signed uploads, so a real bundle needs
-            // android/key.properties (gitignored) to be present.
-            signingConfig keystoreProperties.containsKey('storeFile')
-                ? signingConfigs.release
-                : signingConfigs.debug
+            // Play rejects debug-signed uploads. The debug key is only a
+            // fallback so `flutter run --release` still works on a machine
+            // without the upload keystore; a bundle built that way must never
+            // be uploaded, so the build says so loudly.
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig signingConfigs.debug
+                gradle.taskGraph.whenReady { graph ->
+                    if (graph.allTasks.any { it.name.toLowerCase().contains('release') }) {
+                        logger.warn('')
+                        logger.warn('=======================================================')
+                        logger.warn(' WARNING: signing this RELEASE build with the DEBUG key.')
+                        logger.warn(' ' + keystoreWarning)
+                        logger.warn(' Google Play will reject the resulting artifact.')
+                        logger.warn('=======================================================')
+                        logger.warn('')
+                    }
+                }
+            }
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
