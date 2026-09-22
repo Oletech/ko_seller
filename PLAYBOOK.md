@@ -258,6 +258,19 @@ keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab \
   | grep -E 'Owner|SHA1'        # must not say CN=Android Debug
 ```
 
+### iPhone only
+
+`TARGETED_DEVICE_FAMILY` is `"1"` in all three build configurations, and
+`Info.plist` declares portrait only with no `~ipad` orientations. The App
+Store then treats this as an iPhone app: reviewers do not run it on an iPad,
+and no iPad screenshots are required. Verify on the built app rather than the
+project file, since a stale `DerivedData` can hide a change:
+
+```bash
+/usr/libexec/PlistBuddy -c "Print :UIDeviceFamily" \
+  build/ios/iphoneos/Runner.app/Info.plist    # must print only 1
+```
+
 ### iOS deployment target
 
 The app targets **iOS 15.0**, set in three places that must agree:
@@ -287,6 +300,8 @@ Firebase/CoreOnly" even after the deployment target is correct.
 | 16 KB memory page sizes | NDK r28 + `extractNativeLibs=false`; verify with `tool/check_16kb.sh` |
 | Edge-to-edge (enforced, no opt-out at 36) | bottom bar pads by `viewPaddingOf().bottom`, all 14 modal sheets use `useSafeArea`, dark system bar icons set in `main.dart` |
 | iOS camera and photo permission strings | `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` in `Info.plist` |
+| Apple privacy manifest | `ios/Runner/PrivacyInfo.xcprivacy`, added to the Runner target's Resources phase |
+| iPhone only | `TARGETED_DEVICE_FAMILY = "1"`, portrait only, no `~ipad` orientation key |
 | Export compliance | `ITSAppUsesNonExemptEncryption = false` |
 
 Account deletion is deliberately refusable: `checkSellerAccountDeletion`
