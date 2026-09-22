@@ -258,6 +258,35 @@ keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab \
   | grep -E 'Owner|SHA1'        # must not say CN=Android Debug
 ```
 
+### The two privacy declarations must agree
+
+Apple's `ios/Runner/PrivacyInfo.xcprivacy`, the App Store Connect privacy
+questionnaire, and Google Play's Data safety form all describe the same app.
+Reviewers compare them, and a mismatch is a known rejection trigger. Declare
+these eleven, all linked to the user, none used for tracking, all for app
+functionality:
+
+| Apple manifest key | Play Data safety | What it is |
+| --- | --- | --- |
+| `PhoneNumber` | Phone number | sign-in identity |
+| `EmailAddress` | Email address | optional store contact |
+| `Name` | Name | store / owner name |
+| `PhysicalAddress` | Address | shop address, areas served |
+| `UserID` | User IDs | Firebase uid, seller id |
+| `PaymentInfo` | User payment info | payout account number |
+| `OtherFinancialInfo` | Other financial info | settlement and payout records |
+| `PhotosorVideos` | Photos | product images, shop logo |
+| `EmailsOrTextMessages` | Other in-app messages | order chat |
+| `OtherUserContent` | Other user-generated content | listings |
+| `DeviceID` | Device or other IDs | FCM token |
+
+Nothing is shared with third parties: Firebase is a processor acting on our
+behalf, which both stores exclude from "sharing". There is no advertising or
+analytics SDK in this app, so no Advertising, Analytics or Personalization
+purpose applies anywhere.
+
+Adding a package that collects something new means updating all three.
+
 ### iPhone only
 
 `TARGETED_DEVICE_FAMILY` is `"1"` in all three build configurations, and
