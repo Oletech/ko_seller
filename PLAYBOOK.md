@@ -258,6 +258,25 @@ keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab \
   | grep -E 'Owner|SHA1'        # must not say CN=Android Debug
 ```
 
+### iOS deployment target
+
+The app targets **iOS 15.0**, set in three places that must agree:
+`ios/Podfile`, the three `IPHONEOS_DEPLOYMENT_TARGET` entries in
+`ios/Runner.xcodeproj/project.pbxproj`, and `MinimumOSVersion` in
+`ios/Flutter/AppFrameworkInfo.plist`. Firebase 4.x and cloud_functions 6.x all
+declare `deployment_target = '15.0'`; anything lower fails `pod install` with
+"requires a higher minimum iOS deployment version".
+
+After changing Firebase versions, regenerate the lock rather than reusing it:
+
+```bash
+cd ios && rm -rf Podfile.lock Pods && pod install
+```
+
+`Podfile.lock` pins the native Firebase SDK (currently 12.19.0). Leaving a
+stale lock produces "CocoaPods could not find compatible versions for pod
+Firebase/CoreOnly" even after the deployment target is correct.
+
 ### Store requirements this app satisfies, and where
 
 | Requirement | Where it lives |
