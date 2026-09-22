@@ -190,6 +190,22 @@ shipped:
    phone number, email, name, photos, payment info and device ID, all linked to
    the user, none used for tracking.
 
+### Version numbers
+
+`pubspec.yaml` is the only place to change them:
+
+```yaml
+version: 1.0.0+2      # versionName 1.0.0, versionCode 2
+```
+
+`android/local.properties` also holds `flutter.versionCode`, which makes it
+look like a second source of truth. It is not — the Flutter tool rewrites it
+from pubspec on every build, and it is gitignored. Do not edit it.
+
+Google Play retires a version code the moment an artifact using it is
+uploaded, even if that upload was rejected and never released. A rejected
+build still burns its number, so bump the `+N` before every re-upload.
+
 ### Building
 
 ```bash
