@@ -46,8 +46,6 @@
 	<string>Kariakoonline Seller saves product images you capture back to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Kariakoonline Seller needs access to your photos so you can choose existing product images for your listings.</string>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>Kariakoonline Seller does not track you across other apps or websites.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

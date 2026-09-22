@@ -258,6 +258,32 @@ keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab \
   | grep -E 'Owner|SHA1'        # must not say CN=Android Debug
 ```
 
+### iOS push notifications need the capability, not just the background mode
+
+FCM on iOS needs **both**:
+
+1. **Push Notifications** capability — this is what writes `aps-environment`
+   into `Runner.entitlements` and enables the capability on the App ID. Without
+   it iOS never issues an APNs token, `getToken()` comes back empty, and
+   sellers silently receive no order alerts. Add it in Xcode under
+   Signing & Capabilities -> + Capability -> Push Notifications.
+2. **Background Modes -> Remote notifications** — already set. This only lets
+   the app process a push in the background; on its own it grants nothing.
+
+Check it is really there:
+
+```bash
+grep -r "aps-environment" ios/Runner/*.entitlements
+grep "CODE_SIGN_ENTITLEMENTS" ios/Runner.xcodeproj/project.pbxproj
+```
+
+Both must return something. An empty result means push is dead on iOS no
+matter what the Dart code does.
+
+Separately, Firebase needs an **APNs authentication key** (.p8) uploaded under
+Project settings -> Cloud Messaging -> Apple app configuration. Without it FCM
+has no way to reach APNs even once the entitlement is right.
+
 ### The two privacy declarations must agree
 
 Apple's `ios/Runner/PrivacyInfo.xcprivacy`, the App Store Connect privacy
