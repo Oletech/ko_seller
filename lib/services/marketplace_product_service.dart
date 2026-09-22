@@ -15,11 +15,16 @@ class MarketplaceProductService {
     FirebaseStorage? storage,
     required FirebaseSessionService sessionService,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance,
+        _storageOverride = storage,
         _sessionService = sessionService;
 
   final FirebaseFirestore _firestore;
-  final FirebaseStorage _storage;
+  final FirebaseStorage? _storageOverride;
+
+  // Resolved on first use rather than in the constructor: FirebaseStorage
+  // throws when the app has no storage bucket, and nothing here should fail
+  // at construction when the seller may never upload an image.
+  FirebaseStorage get _storage => _storageOverride ?? FirebaseStorage.instance;
   final FirebaseSessionService _sessionService;
 
   CollectionReference<Map<String, dynamic>> get _products =>

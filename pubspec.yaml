@@ -15,7 +15,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # In iOS, build-name is used as CFBundleShortVersionString while build-number used as CFBundleVersion.
 # Read more about iOS versioning at
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
-version: 1.0.0+2
+version: 1.0.0+3
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -40,21 +40,25 @@ dependencies:
   shared_preferences: ^2.2.2
   uuid: ^4.3.3
   equatable: ^2.0.5
-  firebase_core: ^3.4.0
-  firebase_auth: ^5.2.0
-  cloud_firestore: ^5.4.0
-  firebase_storage: ^12.2.0
-  firebase_messaging: ^15.1.0
+  firebase_core: ^4.15.0
+  firebase_auth: ^6.7.0
+  cloud_firestore: ^6.10.0
+  firebase_storage: ^13.6.0
+  firebase_messaging: ^16.7.0
   flutter_local_notifications: ^17.2.4
   url_launcher: ^6.3.1
   image_picker: ^1.0.7
   image_cropper: ^11.0.0
-  cloud_functions: ^5.6.0
+  cloud_functions: ^6.5.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  firebase_core_platform_interface: ^5.4.2
+  # Test-only, for setupFirebaseCoreMocks(). This constraint MUST track
+  # whatever firebase_core resolves to: holding it back skews the pigeon
+  # channel names between Dart and the native plugin, and the app then fails
+  # at startup with "Unable to establish connection on channel".
+  firebase_core_platform_interface: ^8.1.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

@@ -213,6 +213,31 @@ flutter build appbundle --release    # Play
 flutter build ipa --release          # App Store
 ```
 
+### Always install and launch a release build before uploading
+
+```bash
+flutter build apk --release
+adb install -r build/app/outputs/flutter-apk/app-release.apk
+adb shell am start -n tz.co.oletech.kariakoonlineseller/.MainActivity
+adb logcat -d --pid=$(adb shell pidof tz.co.oletech.kariakoonlineseller) | grep "E flutter"
+```
+
+A successful `flutter build` says nothing about whether the app starts. Two
+separate startup failures shipped to Play because the build was green:
+
+- `namespace` was changed without moving `MainActivity.kt`, so the manifest's
+  `.MainActivity` resolved to a class that did not exist and Android could not
+  launch the activity at all.
+- `firebase_core_platform_interface` was pinned in `dev_dependencies` to an
+  old version, so the Dart pigeon client used
+  `dev.flutter.pigeon.FirebaseCoreHostApi.initializeCore` while the native
+  plugin listened on
+  `dev.flutter.pigeon.firebase_core_platform_interface.FirebaseCoreHostApi.initializeCore`.
+  `Firebase.initializeApp` threw and `main()` never reached `runApp`.
+
+Neither shows up in a build log, in `flutter analyze`, or in a debug run on a
+machine with a warm cache. Launch the release artifact.
+
 ### Verify the bundle before uploading
 
 ```bash

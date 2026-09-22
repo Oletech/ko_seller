@@ -129,10 +129,15 @@ android {
                     }
                 }
             }
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
-                'proguard-rules.pro'
+            // Code shrinking is deliberately off. Turning it on stripped the
+            // native side of the Firebase plugins, and the app died at
+            // startup with "Unable to establish connection on channel" from
+            // FirebaseCoreHostApi.initializeCore. Flutter's default release
+            // build does not shrink either. If it is ever re-enabled it needs
+            // keep rules for the plugin and pigeon classes, and an install
+            // test on a real release build before shipping.
+            minifyEnabled false
+            shrinkResources false
         }
     }
 }
