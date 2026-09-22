@@ -15,7 +15,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyAMqfXjlnFGXT4pKIiM_bBoq6axKMElVdg',
-    appId: '1:853459286281:android:29a9caaa76dcd88bcb3bd8',
+    appId: '1:853459286281:android:c4f747a6a0fd240bcb3bd8',
     messagingSenderId: '853459286281',
     projectId: 'kariakoo-babb8',
     storageBucket: 'kariakoo-babb8.appspot.com',

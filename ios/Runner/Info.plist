@@ -43,8 +43,6 @@
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
@@ -52,6 +50,20 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Kariakoonline Seller uses the camera so you can photograph your products and your shop logo for your listings.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Kariakoonline Seller needs access to your photos so you can choose existing product images for your listings.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Kariakoonline Seller saves product images you capture back to your photo library.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Kariakoonline Seller does not track you across other apps or websites.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>

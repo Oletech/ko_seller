@@ -16,10 +16,15 @@ class OtpTicket {
   final String verificationId;
   final DateTime expiresAt;
 
+  /// True when Android verified the device without ever sending an SMS. The
+  /// caller is already signed in and must not be sent to the code screen.
+  final bool autoVerified;
+
   OtpTicket({
     required this.phoneNumber,
     required this.verificationId,
     required this.expiresAt,
+    this.autoVerified = false,
   });
 
   bool get isExpired => DateTime.now().isAfter(expiresAt);
@@ -32,18 +37,49 @@ class OtpService {
   OtpTicket? _latestTicket;
   int? _resendToken;
   PhoneAuthCredential? _autoVerifiedCredential;
+  bool _autoSignedIn = false;
+
+  /// Fired when Android auto-verified the device and signed the seller in
+  /// after the code screen was already showing. Without it the seller sits
+  /// waiting for an SMS that was never sent.
+  void Function()? onAutoVerified;
 
   Future<OtpTicket> requestCode(String phoneNumber) async {
     final completer = Completer<OtpTicket>();
     _autoVerifiedCredential = null;
+    _autoSignedIn = false;
 
     try {
       await _auth.verifyPhoneNumber(
         phoneNumber: phoneNumber,
         timeout: const Duration(seconds: 60),
         forceResendingToken: _resendToken,
-        verificationCompleted: (credential) {
+        // Play Integrity can verify the device outright, in which case no SMS
+        // is ever sent and codeSent never fires. Signing in here is the only
+        // way the seller gets past this screen.
+        verificationCompleted: (credential) async {
           _autoVerifiedCredential = credential;
+          try {
+            await _auth.signInWithCredential(credential);
+            _autoSignedIn = true;
+            _latestTicket = null;
+            _resendToken = null;
+            if (!completer.isCompleted) {
+              completer.complete(
+                OtpTicket(
+                  phoneNumber: phoneNumber,
+                  verificationId: '',
+                  expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+                  autoVerified: true,
+                ),
+              );
+            } else {
+              // The code screen is already up; tell it to move on.
+              onAutoVerified?.call();
+            }
+          } catch (_) {
+            // Fall back to the typed code; codeSent may still arrive.
+          }
         },
         verificationFailed: (error) {
           if (!completer.isCompleted) {
@@ -86,6 +122,13 @@ class OtpService {
     required String phoneNumber,
     required String code,
   }) async {
+    // Auto-verification may have signed the seller in while the code screen
+    // was open. Whatever they typed is then irrelevant.
+    if (_autoSignedIn && _auth.currentUser != null) {
+      _autoSignedIn = false;
+      _autoVerifiedCredential = null;
+      return true;
+    }
     if (_latestTicket == null) return false;
     if (_latestTicket!.phoneNumber != phoneNumber) return false;
     if (_latestTicket!.isExpired) return false;

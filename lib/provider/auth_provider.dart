@@ -35,6 +35,7 @@ class AuthProvider extends ChangeNotifier {
         _sellerProfileService = sellerProfileService,
         _sellerPaymentMethodService = sellerPaymentMethodService,
         _pushNotificationService = pushNotificationService {
+    _otpService.onAutoVerified = _handleAutoVerified;
     _bootstrap();
     _tokenRefreshSubscription =
         _pushNotificationService.tokenRefreshes.listen(_registerToken);
@@ -52,16 +53,28 @@ class AuthProvider extends ChangeNotifier {
   AuthStatus _status = AuthStatus.uninitialized;
   String? _pendingPhoneNumber;
   String? _debugCode;
+  String? _profileError;
 
   SellerProfile? get profile => _profile;
   AuthStatus get status => _status;
   String? get pendingPhoneNumber => _pendingPhoneNumber;
   String? get debugCode => _debugCode;
 
+  /// Set when the seller is signed in but their store could not be loaded, for
+  /// example when the store is registered to a different phone number. The
+  /// account looks empty in that state, so the UI has to say why.
+  String? get profileError => _profileError;
+
   bool get isAuthenticated => _status == AuthStatus.authenticated;
 
   Future<void> _bootstrap() async {
     final storedProfile = _storage.readSellerProfile();
+    if (storedProfile != null) {
+      // currentUser is null for a moment on a cold start while Firebase Auth
+      // reads its persisted session off disk. Clearing local storage on that
+      // race logs a working seller out and forces a fresh OTP.
+      await _sessionService.waitForSessionRestore();
+    }
     if (storedProfile != null && _sessionService.currentUser == null) {
       // The cached profile outlived the Firebase session (reinstall, token
       // revocation). Every backend call would fail, so ask for a fresh OTP.
@@ -95,7 +108,9 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> requestOtp(String phoneNumber) async {
+  /// Returns true when Android verified the device outright and the seller is
+  /// already signed in, so the caller must skip the code screen.
+  Future<bool> requestOtp(String phoneNumber) async {
     _status = AuthStatus.requestingOtp;
     notifyListeners();
 
@@ -103,8 +118,13 @@ class AuthProvider extends ChangeNotifier {
       final ticket = await _otpService.requestCode(phoneNumber);
       _pendingPhoneNumber = ticket.phoneNumber;
       _debugCode = null;
+      if (ticket.autoVerified) {
+        await _completeSignIn(ticket.phoneNumber);
+        return true;
+      }
       _status = AuthStatus.otpSent;
       notifyListeners();
+      return false;
     } on OtpException {
       _status = AuthStatus.unauthenticated;
       notifyListeners();
@@ -137,10 +157,31 @@ class AuthProvider extends ChangeNotifier {
       return false;
     }
 
-    final baseProfile = _profile ?? SellerProfile.empty(_pendingPhoneNumber!);
+    await _completeSignIn(_pendingPhoneNumber!);
+    return true;
+  }
+
+  /// Android auto-verified the device after the code screen was already up.
+  void _handleAutoVerified() {
+    final phoneNumber = _pendingPhoneNumber;
+    if (phoneNumber == null || _status == AuthStatus.authenticated) {
+      return;
+    }
+    unawaited(_completeSignIn(phoneNumber));
+  }
+
+  /// Shared tail of both sign-in paths: load the store, then mark the session
+  /// authenticated.
+  ///
+  /// A failure here is not fatal to the session, but it is not silent either:
+  /// the seller is signed in with no store loaded, which looks like an empty
+  /// account, so [profileError] carries the reason for the UI to show.
+  Future<void> _completeSignIn(String phoneNumber) async {
+    final baseProfile = _profile ?? SellerProfile.empty(phoneNumber);
+    _profileError = null;
     try {
       final seller = await _sellerProfileService.syncSellerByPhone(
-        phoneNumber: _pendingPhoneNumber!,
+        phoneNumber: phoneNumber,
         localProfile: baseProfile,
       );
       final channels =
@@ -148,7 +189,13 @@ class AuthProvider extends ChangeNotifier {
       _profile = seller.copyWith(paymentChannels: channels);
       await _storage.saveSellerProfile(_profile!);
       await _registerCurrentDeviceForNotifications();
-    } catch (_) {
+    } on SellerProfileException catch (error) {
+      _profileError = error.message;
+      _profile = baseProfile;
+      await _storage.saveSellerProfile(_profile!);
+    } catch (error) {
+      _profileError =
+          'Signed in, but your store could not be loaded. Pull down to retry.';
       _profile = baseProfile;
       await _storage.saveSellerProfile(_profile!);
     }
@@ -157,7 +204,12 @@ class AuthProvider extends ChangeNotifier {
     _pendingPhoneNumber = null;
     _debugCode = null;
     notifyListeners();
-    return true;
+  }
+
+  void clearProfileError() {
+    if (_profileError == null) return;
+    _profileError = null;
+    notifyListeners();
   }
 
   Future<void> updateProfile({

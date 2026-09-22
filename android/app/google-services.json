@@ -44,14 +44,58 @@
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "853459286281-jb51sostafkbkket74ettcejm69dcpnf.apps.googleusercontent.com",
+              "client_id": "853459286281-7gsj7979k3nbejhnk4p6m29c99kv7724.apps.googleusercontent.com",
               "client_type": 3
             },
             {
-              "client_id": "853459286281-is0selhk30mhh2qk732u9vi6j0r3h9ad.apps.googleusercontent.com",
+              "client_id": "853459286281-696npk0p792o3i4lch3rgeeu5oo97kae.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.example.kariakoonline"
+                "bundle_id": "com.example.kariakoonlineSeller"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:853459286281:android:c4f747a6a0fd240bcb3bd8",
+        "android_client_info": {
+          "package_name": "tz.co.oletech.kariakoonlineseller"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "853459286281-b77q04fpdfe2o4erlpuiid5hoe36e8st.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tz.co.oletech.kariakoonlineseller",
+            "certificate_hash": "ab9ed59f89d0c294ffac7325fd6c802da25ed521"
+          }
+        },
+        {
+          "client_id": "853459286281-jb51sostafkbkket74ettcejm69dcpnf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMqfXjlnFGXT4pKIiM_bBoq6axKMElVdg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "853459286281-7gsj7979k3nbejhnk4p6m29c99kv7724.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "853459286281-696npk0p792o3i4lch3rgeeu5oo97kae.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.kariakoonlineSeller"
               }
             }
           ]

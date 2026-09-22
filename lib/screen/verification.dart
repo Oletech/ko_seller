@@ -22,17 +22,39 @@ class VerificationScreen extends StatefulWidget {
 class _VerificationScreenState extends State<VerificationScreen> {
   String _otp = '';
   bool _isLoading = false;
+  bool _navigated = false;
   Timer? _timer;
   int _countdown = 60;
+
+  AuthProvider? _auth;
 
   @override
   void initState() {
     super.initState();
     _startTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _auth = context.read<AuthProvider>()..addListener(_onAuthChanged);
+      _onAuthChanged();
+    });
+  }
+
+  // Android can auto-verify the device after this screen is already showing,
+  // in which case no SMS ever arrives and there is nothing to type.
+  void _onAuthChanged() {
+    if (!mounted || _navigated) return;
+    if (_auth?.status == AuthStatus.authenticated) {
+      _navigated = true;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (route) => false,
+      );
+    }
   }
 
   @override
   void dispose() {
+    _auth?.removeListener(_onAuthChanged);
     _timer?.cancel();
     super.dispose();
   }
@@ -61,6 +83,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
       final success = await auth.verifyOtp(_otp);
       if (!mounted) return;
       if (success) {
+        if (_navigated) return;
+        _navigated = true;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
           (route) => false,
@@ -93,7 +117,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Future<void> _resend() async {
     final auth = context.read<AuthProvider>();
     try {
-      await auth.requestOtp(widget.phoneNumber);
+      final autoVerified = await auth.requestOtp(widget.phoneNumber);
+      if (autoVerified) return;
       _startTimer();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -160,8 +185,15 @@ class _VerificationScreenState extends State<VerificationScreen> {
                       textStyle: const TextStyle(fontSize: 20),
                       underlineColor: sellerGreen,
                       keyboardType: TextInputType.number,
-                      onCompleted: (value) => _otp = value,
-                      onEditing: (_) {},
+                      onCompleted: (value) => setState(() => _otp = value),
+                      // onEditing reports focus, not the digits. Clearing here
+                      // stops a previously completed code being submitted
+                      // again after the seller edits a digit.
+                      onEditing: (isEditing) {
+                        if (isEditing && _otp.isNotEmpty) {
+                          setState(() => _otp = '');
+                        }
+                      },
                     ),
                   ],
                 ),

@@ -160,7 +160,59 @@ shipped:
 
 ---
 
-## 7. When something breaks
+## 7. Shipping to the App Store and Play Store
+
+### Before the first upload
+
+1. **Generate the upload keystore once, and back it up.** Losing it means you
+   can never update the app under the same listing (Play App Signing lets you
+   reset an upload key, Apple does not forgive a lost distribution identity).
+
+   ```bash
+   keytool -genkey -v -keystore ~/kariakoonline-seller-upload.jks \
+     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+   cp android/key.properties.example android/key.properties   # then fill it in
+   ```
+
+   `android/key.properties` and `*.jks` are gitignored. Without that file the
+   release build silently falls back to the debug key, which Play rejects.
+
+2. **Register the release SHA-1 and SHA-256 in Firebase** for
+   `tz.co.oletech.kariakoonlineseller` — both the upload key and the Play App
+   Signing key that Google generates after the first upload. Phone auth breaks
+   without them; see §8.
+
+3. **Add `ios/Runner/PrivacyInfo.xcprivacy` to the Runner target in Xcode**
+   (drag it into the project navigator, tick Runner under Target Membership).
+   The file exists but a privacy manifest that is not bundled does not count.
+
+4. Fill in the App Store Connect privacy questionnaire to match that manifest:
+   phone number, email, name, photos, payment info and device ID, all linked to
+   the user, none used for tracking.
+
+### Building
+
+```bash
+flutter build appbundle --release    # Play
+flutter build ipa --release          # App Store
+```
+
+### Store requirements this app satisfies, and where
+
+| Requirement | Where it lives |
+| --- | --- |
+| In-app account deletion (Apple 5.1.1(v), Play) | Settings → Delete Account, backed by `deleteSellerAccount` |
+| Privacy policy reachable in-app | Settings → Privacy Policy, `kPrivacyPolicyUrl` in `utils/style.dart` |
+| Play target API level | `targetSdkVersion 35` |
+| iOS camera and photo permission strings | `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` in `Info.plist` |
+| Export compliance | `ITSAppUsesNonExemptEncryption = false` |
+
+Account deletion is deliberately refusable: `checkSellerAccountDeletion`
+returns blockers while buyer money is still in escrow or a payout is owed, and
+the app shows them. Reviewers accept a documented hold like this; what they
+reject is having no deletion path at all.
+
+## 8. When something breaks
 
 | Symptom | Cause to check first |
 | --- | --- |

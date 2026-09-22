@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../model/app_notification.dart';
@@ -19,6 +20,7 @@ import '../provider/auth_provider.dart';
 import '../provider/notification_provider.dart';
 import '../provider/order_provider.dart';
 import '../provider/product_provider.dart';
+import '../services/account_deletion_service.dart';
 import '../services/firebase_session_service.dart';
 import '../services/firebase_storage_upload_exception.dart';
 import '../services/seller_payout_service.dart';
@@ -376,6 +378,14 @@ class _DashboardView extends StatelessWidget {
             onNotificationsTap: () =>
                 context.read<NotificationProvider>().markAllAsRead(),
           ),
+          if (context.watch<AuthProvider>().profileError != null) ...[
+            const SizedBox(height: 16),
+            _ProfileErrorBanner(
+              message: context.watch<AuthProvider>().profileError!,
+              onDismiss: () =>
+                  context.read<AuthProvider>().clearProfileError(),
+            ),
+          ],
           const SizedBox(height: 16),
           Row(
             children: [
@@ -413,6 +423,59 @@ class _DashboardView extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _ProductHighlightGrid(products: products.products),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown when the seller is signed in but their store could not be loaded.
+/// Without this the account simply looks empty, which is indistinguishable
+/// from having no products and no orders.
+class _ProfileErrorBanner extends StatelessWidget {
+  const _ProfileErrorBanner({
+    required this.message,
+    required this.onDismiss,
+  });
+
+  final String message;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: sellerRed.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: sellerRed.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: sellerRed, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Your store did not load',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: sellerRed,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(message, style: const TextStyle(height: 1.35)),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onDismiss,
+            icon: const Icon(Icons.close, size: 18),
+            visualDensity: VisualDensity.compact,
+          ),
         ],
       ),
     );
@@ -3770,6 +3833,121 @@ class _SettingsScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _openPrivacyPolicy(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final uri = Uri.parse(kPrivacyPolicyUrl);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not open the privacy policy.')),
+      );
+    }
+  }
+
+  /// Required by App Store Review 5.1.1(v) and Google Play. The backend
+  /// refuses while buyer money is still in escrow or a payout is owed, and
+  /// says why, so the seller is never silently removed mid-trade.
+  Future<void> _deleteAccount(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final service = AccountDeletionService(
+      sessionService: FirebaseSessionService(),
+    );
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    AccountDeletionCheck check;
+    try {
+      check = await service.check();
+    } on AccountDeletionException catch (error) {
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      return;
+    }
+    navigator.pop();
+    if (!context.mounted) return;
+
+    if (!check.canDelete) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Account cannot be deleted yet'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final blocker in check.blockers)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text('\u2022 $blocker'),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Delete account'),
+            content: const Text(
+              'This permanently removes your seller account, your payout '
+              'accounts and your access to this app. Your listings are '
+              'withdrawn from the marketplace.\n\n'
+              'Completed order records are kept for accounting and dispute '
+              'purposes, as the law requires.\n\n'
+              'This cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: TextButton.styleFrom(foregroundColor: sellerRed),
+                child: const Text('Delete permanently'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed || !context.mounted) return;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      await service.deleteAccount();
+      await auth.logout();
+      navigator.pop();
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Your account has been deleted.')),
+      );
+    } on AccountDeletionException catch (error) {
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final notifications = context.watch<NotificationProvider>();
@@ -3905,12 +4083,27 @@ class _SettingsScreen extends StatelessWidget {
                   },
                 ),
                 _SettingsTile(
+                  icon: Icons.privacy_tip_outlined,
+                  iconColor: const Color(0xff84A4FF),
+                  title: 'Privacy Policy',
+                  subtitle: 'How Kariakoonline handles your data',
+                  onTap: () => _openPrivacyPolicy(context),
+                ),
+                _SettingsTile(
                   icon: Icons.logout_rounded,
                   iconColor: sellerRed,
                   title: 'Log Out',
                   subtitle: 'Sign out from this device',
                   isDestructive: true,
                   onTap: () => _logout(context),
+                ),
+                _SettingsTile(
+                  icon: Icons.delete_forever_outlined,
+                  iconColor: sellerRed,
+                  title: 'Delete Account',
+                  subtitle: 'Permanently remove your store and your data',
+                  isDestructive: true,
+                  onTap: () => _deleteAccount(context),
                   showDivider: false,
                 ),
               ],

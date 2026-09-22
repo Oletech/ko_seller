@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../provider/auth_provider.dart';
 import '../utils/style.dart';
+import 'home.dart';
 import 'verification.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -41,8 +42,17 @@ class _LoginScreenState extends State<LoginScreen> {
       _sending = true;
     });
     try {
-      await auth.requestOtp(formatted);
+      final autoVerified = await auth.requestOtp(formatted);
       if (!mounted) return;
+      if (autoVerified) {
+        // Android verified this device without sending an SMS; there is no
+        // code to type.
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (route) => false,
+        );
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: sellerGreen,

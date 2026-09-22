@@ -50,3 +50,8 @@ app.*.map.json
 
 # Refact AI local workspace
 .refact/
+
+# Android release signing (never commit the keystore or its passwords)
+android/key.properties
+*.jks
+*.keystore
