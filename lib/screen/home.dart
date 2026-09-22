@@ -194,8 +194,12 @@ class _SellerBottomBar extends StatelessWidget {
         )
         .length;
 
+    // Edge-to-edge is enforced from targetSdk 35 and cannot be opted out of
+    // at 36, so the gesture bar draws over this. Pad by the real inset.
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      padding: EdgeInsets.fromLTRB(16, 8, 16, 12 + bottomInset),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -887,6 +891,7 @@ void _showPaymentsFlowSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => const _PaymentsFlowSheet(),
   );
 }
@@ -895,6 +900,7 @@ void _showReturnsSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => const _ReturnsCenterSheet(),
   );
 }
@@ -903,6 +909,7 @@ void _showCommunicationsSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => const _CommunicationsSheet(),
   );
 }
@@ -1993,6 +2000,7 @@ class _ProductHighlightGrid extends StatelessWidget {
                 onTap: () => showModalBottomSheet(
                   context: context,
                   isScrollControlled: true,
+                  useSafeArea: true,
                   builder: (_) => _ProductPreviewSheet(product: product),
                 ),
                 child: Container(
@@ -3754,6 +3762,7 @@ class _AccountActions extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => _EditProfileSheet(
         auth: auth,
         profile: profile,
@@ -3764,6 +3773,7 @@ class _AccountActions extends StatelessWidget {
   void _showContactSheet(BuildContext context, SellerProfile? profile) {
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       builder: (_) => _ContactSheet(profile: profile),
     );
   }
@@ -3797,6 +3807,7 @@ class _SettingsScreen extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => _EditProfileSheet(
         auth: auth,
         profile: profile,
@@ -3807,6 +3818,7 @@ class _SettingsScreen extends StatelessWidget {
   void _openContactSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       builder: (_) => _ContactSheet(profile: profile),
     );
   }
@@ -3817,6 +3829,7 @@ class _SettingsScreen extends StatelessWidget {
   ) {
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       builder: (_) => _GeneralStatementSheet(
         profile: profile,
         unreadNotifications: notifications.unreadCount,
@@ -4629,6 +4642,7 @@ class _PaymentMethods extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => const _AddChannelSheet(),
     );
   }
@@ -4637,6 +4651,7 @@ class _PaymentMethods extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => _PaymentDetailSheet(channel: channel),
     );
   }
@@ -4728,6 +4743,7 @@ class _ListingManager extends StatelessWidget {
               onTap: () => showModalBottomSheet(
                 context: context,
                 isScrollControlled: true,
+                useSafeArea: true,
                 builder: (_) => _ProductPreviewSheet(product: product),
               ),
               child: Container(
@@ -4806,6 +4822,7 @@ void _showListingFilterSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => const _ListingFilterSheet(),
   );
 }
@@ -5365,6 +5382,7 @@ void _showOrderDetailSheet(BuildContext context, SellerOrder order) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => _OrderDetailSheet(order: order),
   );
 }

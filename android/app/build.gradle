@@ -90,8 +90,8 @@ android {
     defaultConfig {
         applicationId "tz.co.oletech.kariakoonlineseller"
         minSdkVersion flutter.minSdkVersion
-        // Google Play requires API 35 for new apps and updates.
-        targetSdkVersion 35
+        // Google Play requires API 36 for new apps and updates.
+        targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }

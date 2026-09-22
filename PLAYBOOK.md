@@ -203,7 +203,8 @@ flutter build ipa --release          # App Store
 | --- | --- |
 | In-app account deletion (Apple 5.1.1(v), Play) | Settings → Delete Account, backed by `deleteSellerAccount` |
 | Privacy policy reachable in-app | Settings → Privacy Policy, `kPrivacyPolicyUrl` in `utils/style.dart` |
-| Play target API level | `targetSdkVersion 35` |
+| Play target API level | `targetSdkVersion 36` |
+| Edge-to-edge (enforced, no opt-out at 36) | bottom bar pads by `viewPaddingOf().bottom`, all 14 modal sheets use `useSafeArea`, dark system bar icons set in `main.dart` |
 | iOS camera and photo permission strings | `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` in `Info.plist` |
 | Export compliance | `ITSAppUsesNonExemptEncryption = false` |
 
