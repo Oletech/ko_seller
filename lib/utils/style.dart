@@ -27,4 +27,5 @@ double koScreenWidth(inputWidth, BuildContext context) {
 
 /// Shown from Settings and linked in both store listings. Both stores require
 /// a reachable privacy policy for an app that holds an account.
-const String kPrivacyPolicyUrl = 'https://kariakoonline.com/privacy-policy.html';
+const String kPrivacyPolicyUrl =
+    'https://kariakoonline.com/seller-privacy-policy.html';

@@ -75,6 +75,14 @@
           }
         },
         {
+          "client_id": "853459286281-q1s0iftgta87orfq1haqo3akuomf5spg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tz.co.oletech.kariakoonlineseller",
+            "certificate_hash": "f5293582397f5726060cbfa6122715da209b37f0"
+          }
+        },
+        {
           "client_id": "853459286281-jb51sostafkbkket74ettcejm69dcpnf.apps.googleusercontent.com",
           "client_type": 3
         }
